@@ -151,16 +151,27 @@ function DishCard({ dish }: { dish: Dish }) {
 function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit: (r: any) => void }) {
   const [formData, setFormData] = useState({
     name: '',
+    email: '',
     date: '',
     time: '',
     guests: 2,
-    phone: ''
+    phone: '',
+    notes: ''
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // In a real app, combine date and time
-    onSubmit({ ...formData, id: Math.random().toString() });
+    onSubmit({ 
+      id: Math.random().toString(),
+      name: formData.name,
+      email: formData.email,
+      date: new Date(formData.date + 'T00:00:00'),
+      time: formData.time,
+      guests: formData.guests,
+      phone: formData.phone,
+      notes: formData.notes
+    });
     onClose();
     alert('¡Reserva confirmada!');
   };
@@ -178,7 +189,7 @@ function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit
         initial={{ opacity: 0, scale: 0.95, y: 20 }} 
         animate={{ opacity: 1, scale: 1, y: 0 }} 
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl z-10"
+        className="relative bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl z-10 max-h-[90vh] overflow-y-auto"
       >
         <button onClick={onClose} className="absolute top-4 right-4 text-neutral-400 hover:text-neutral-900">
           <X size={24} />
@@ -198,6 +209,17 @@ function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit
               className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
               value={formData.name}
               onChange={e => setFormData({...formData, name: e.target.value})}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">Correo Electrónico</label>
+            <input 
+              required
+              type="email" 
+              className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+              value={formData.email}
+              onChange={e => setFormData({...formData, email: e.target.value})}
             />
           </div>
           
@@ -267,6 +289,17 @@ function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit
                 onChange={e => setFormData({...formData, phone: e.target.value})}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">Anotaciones Especiales</label>
+            <textarea 
+              rows={2}
+              className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+              value={formData.notes}
+              onChange={e => setFormData({...formData, notes: e.target.value})}
+              placeholder="Ej. Aniversario, alergias..."
+            />
           </div>
 
           <button 

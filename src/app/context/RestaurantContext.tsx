@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '../../lib/supabase';
 
 // --- Types ---
 
@@ -45,6 +46,7 @@ export interface Order {
 export interface Reservation {
   id: string;
   name: string;
+  email?: string;
   date: Date;
   time: string;
   guests: number;
@@ -270,7 +272,52 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
   const [dishes, setDishes] = useState<Dish[]>(INITIAL_DISHES);
   const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
   const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
-  const [reservations, setReservations] = useState<Reservation[]>(INITIAL_RESERVATIONS);
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+
+  useEffect(() => {
+    fetchReservations();
+
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('public:reserva')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reserva' }, payload => {
+        fetchReservations(); // Simplemente recargar cuando hay cambios
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchReservations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('reserva')
+        .select('*');
+        
+      if (error) throw error;
+      
+      if (data) {
+        const mappedReservations: Reservation[] = data.map((r: any) => ({
+          id: r.id,
+          name: r.nombre || 'Sin nombre',
+          date: new Date(r.fecha + 'T00:00:00'), // Asegurar que parsee correctamente sin timezone shift
+          time: r.hora,
+          guests: r.num_personas,
+          phone: r.telefono || '',
+          notes: r.anotaciones,
+        }));
+        setReservations(mappedReservations);
+      }
+    } catch (err) {
+      console.error("Error fetching reservations:", err);
+      // Fallback a los datos iniciales si falla
+      if (reservations.length === 0) {
+        setReservations(INITIAL_RESERVATIONS);
+      }
+    }
+  };
 
   const toggleDishStatus = (id: string) => {
     setDishes(prev => prev.map(d => d.id === id ? { ...d, status: d.status === 'active' ? 'inactive' : 'active' } : d));
@@ -332,8 +379,27 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, viewedByWaiter: true } : o));
   };
 
-  const addReservation = (reservation: Reservation) => {
+  const addReservation = async (reservation: Reservation) => {
+    // Optimistic update
     setReservations(prev => [...prev, reservation]);
+    
+    try {
+      const { error } = await supabase.from('reserva').insert([{
+        nombre: reservation.name,
+        email: reservation.email,
+        telefono: reservation.phone,
+        fecha: reservation.date.toISOString().split('T')[0],
+        hora: reservation.time,
+        num_personas: reservation.guests,
+        anotaciones: reservation.notes,
+        estado: 'confirmada'
+      }]);
+      
+      if (error) throw error;
+    } catch (err) {
+      console.error("Error creating reservation in Supabase:", err);
+      // Opcional: revertir en caso de error
+    }
   };
 
   return (

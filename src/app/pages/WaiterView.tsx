@@ -884,45 +884,47 @@ function ReservationsView() {
   const { reservations } = useRestaurant();
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
 
-  // Filtrar reservas de hoy y ordenar por hora descendente
-  const today = new Date();
-  const todayReservations = reservations
-    .filter(r => {
-      const resDate = new Date(r.date);
-      return resDate.toDateString() === today.toDateString();
-    })
-    .sort((a, b) => b.time.localeCompare(a.time));
+  // Ordenar reservas por fecha y hora (más recientes/próximas primero)
+  const sortedReservations = [...reservations].sort((a, b) => {
+    const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+    if (dateDiff !== 0) return dateDiff;
+    return a.time.localeCompare(b.time);
+  });
 
   return (
     <div className="h-full flex overflow-hidden">
       {/* Reservations List */}
       <div className="w-96 bg-white border-r border-neutral-200 flex flex-col overflow-hidden">
         <div className="p-6 border-b border-neutral-200">
-          <h2 className="text-xl font-bold text-neutral-900">Reservas de Hoy</h2>
+          <h2 className="text-xl font-bold text-neutral-900">Todas las Reservas</h2>
           <p className="text-sm text-neutral-500 mt-1">
-            {todayReservations.length} reservas programadas
+            {sortedReservations.length} reservas registradas
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {todayReservations.length === 0 ? (
+          {sortedReservations.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-neutral-400">
               <Calendar size={48} className="mb-3 opacity-20" />
-              <p>No hay reservas para hoy</p>
+              <p>No hay reservas en el sistema</p>
             </div>
           ) : (
-            todayReservations.map(reservation => (
+            sortedReservations.map(reservation => (
               <motion.button
                 key={reservation.id}
                 whileHover={{ scale: 1.02 }}
                 onClick={() => setSelectedReservation(reservation)}
                 className={clsx(
-                  "w-full p-4 rounded-lg border-2 transition-all text-left",
+                  "w-full p-4 rounded-lg border-2 transition-all text-left mb-2",
                   selectedReservation?.id === reservation.id
                     ? "bg-neutral-900 text-white border-neutral-900"
                     : "bg-white border-neutral-200 hover:border-neutral-300"
                 )}
               >
+                <div className="flex items-center gap-3 mb-2">
+                  <Calendar size={18} />
+                  <span className="text-sm font-medium">{new Date(reservation.date).toLocaleDateString()}</span>
+                </div>
                 <div className="flex items-center gap-3 mb-2">
                   <Clock size={20} />
                   <span className="text-xl font-bold">{reservation.time}</span>
@@ -964,7 +966,14 @@ function ReservationsView() {
                   <p className="text-xl font-bold text-neutral-900 mt-1">{selectedReservation.name}</p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-3 gap-6">
+                  <div>
+                    <label className="text-sm text-neutral-500 font-medium flex items-center gap-2">
+                      <Calendar size={16} />
+                      Fecha
+                    </label>
+                    <p className="text-lg font-semibold text-neutral-900 mt-1">{new Date(selectedReservation.date).toLocaleDateString()}</p>
+                  </div>
                   <div>
                     <label className="text-sm text-neutral-500 font-medium flex items-center gap-2">
                       <Clock size={16} />
@@ -981,9 +990,15 @@ function ReservationsView() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-sm text-neutral-500 font-medium">Teléfono</label>
-                  <p className="text-lg font-semibold text-neutral-900 mt-1">{selectedReservation.phone}</p>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm text-neutral-500 font-medium">Teléfono</label>
+                    <p className="text-lg font-semibold text-neutral-900 mt-1">{selectedReservation.phone || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm text-neutral-500 font-medium">Correo Electrónico</label>
+                    <p className="text-lg font-semibold text-neutral-900 mt-1">{selectedReservation.email || 'N/A'}</p>
+                  </div>
                 </div>
 
                 {selectedReservation.notes && (
