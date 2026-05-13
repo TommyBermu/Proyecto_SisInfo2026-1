@@ -1,26 +1,29 @@
 import React, { useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router';
 import { LogOut } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 export default function EmployeeLayout() {
   const navigate = useNavigate();
-  const employeeType = localStorage.getItem('employeeType');
-  const employeeName = localStorage.getItem('employeeName');
+  const { profile, loading, clearLocalProfile } = useAuth();
+  const employeeType = profile?.role ?? null;
+  const employeeName = profile?.full_name ?? profile?.email ?? '';
 
   useEffect(() => {
     // Si no hay sesión, redirigir al login
-    if (!employeeType) {
+    if (!loading && !employeeType) {
       navigate('/login', { replace: true });
     }
-  }, [employeeType, navigate]);
+  }, [employeeType, loading, navigate]);
 
   const handleLogout = () => {
-    localStorage.removeItem('employeeType');
-    localStorage.removeItem('employeeName');
+    clearLocalProfile();
+    supabase.auth.signOut();
     navigate('/', { replace: true });
   };
 
-  if (!employeeType) return null;
+  if (loading || !employeeType) return null;
 
   return (
     <div className="min-h-screen bg-neutral-50">

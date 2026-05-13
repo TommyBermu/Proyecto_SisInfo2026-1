@@ -1,8 +1,10 @@
 import React from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router';
 import { RestaurantProvider } from './context/RestaurantContext';
+import { AuthProvider } from './context/AuthContext';
 import PublicLayout from './components/PublicLayout';
 import EmployeeLayout from './components/EmployeeLayout';
+import RoleGate from './components/RoleGate';
 import ClientView from './pages/ClientView';
 import LoginView from './pages/LoginView';
 import WaiterView from './pages/WaiterView';
@@ -26,10 +28,38 @@ const router = createBrowserRouter([
     path: "/empleado",
     element: <EmployeeLayout />,
     children: [
-      { path: "mesero", element: <WaiterView /> },
-      { path: "cocina", element: <KitchenView /> },
-      { path: "administrador", element: <AdminView /> },
-      { path: "cajero", element: <CashierView /> },
+      {
+        path: "mesero",
+        element: (
+          <RoleGate allow={["waiter"]}>
+            <WaiterView />
+          </RoleGate>
+        )
+      },
+      {
+        path: "cocina",
+        element: (
+          <RoleGate allow={["kitchen"]}>
+            <KitchenView />
+          </RoleGate>
+        )
+      },
+      {
+        path: "administrador",
+        element: (
+          <RoleGate allow={["admin"]}>
+            <AdminView />
+          </RoleGate>
+        )
+      },
+      {
+        path: "cajero",
+        element: (
+          <RoleGate allow={["cashier"]}>
+            <CashierView />
+          </RoleGate>
+        )
+      },
       { path: "*", element: <Navigate to="/login" replace /> }
     ]
   },
@@ -38,8 +68,10 @@ const router = createBrowserRouter([
 
 export default function App() {
   return (
-    <RestaurantProvider>
-      <RouterProvider router={router} />
-    </RestaurantProvider>
+    <AuthProvider>
+      <RestaurantProvider>
+        <RouterProvider router={router} />
+      </RestaurantProvider>
+    </AuthProvider>
   );
 }

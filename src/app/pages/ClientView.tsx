@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRestaurant, Dish } from '../context/RestaurantContext';
-import { Search, Clock, Users, X } from 'lucide-react';
+import { Search, Clock, Users, X, Calendar as CalendarIcon } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popover';
+import { Calendar } from '../components/ui/calendar';
+import { format } from 'date-fns';
 
 export default function ClientView() {
   const { dishes, addReservation } = useRestaurant();
@@ -149,24 +152,57 @@ function DishCard({ dish }: { dish: Dish }) {
 }
 
 function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit: (r: any) => void }) {
+  const [date, setDate] = useState<Date>();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    date: '',
     time: '',
     guests: 2,
     phone: '',
     notes: ''
   });
 
+  // Fechas y horas para validación
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const currentHour = new Date().getHours();
+
+  // Helper formatea fecha a yyyy-mm-dd
+  const getFormatStr = (d?: Date) => d ? format(d, 'yyyy-MM-dd') : '';
+  const dateStr = getFormatStr(date);
+  const todayStr = format(today, 'yyyy-MM-dd');
+
+  // Generar horas desde 10:00 hasta 22:00 (10 AM a 10 PM)
+  const availableTimes = Array.from({ length: 13 }, (_, i) => {
+    const hour = i + 10;
+    const isPM = hour >= 12;
+    const ampm = isPM ? 'PM' : 'AM';
+    const displayHour = hour > 12 ? hour - 12 : hour;
+    return {
+      value: `${hour}:00`,
+      label: `${displayHour}:00 ${ampm}`,
+      hour
+    };
+  });
+
+  const filteredTimes = availableTimes.filter(t => {
+    if (dateStr === todayStr) {
+      return t.hour > currentHour; // Sólo horas futuras si es hoy
+    }
+    return true;
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, combine date and time
+    if (!date) {
+      alert("Por favor selecciona una fecha");
+      return;
+    }
     onSubmit({ 
       id: Math.random().toString(),
       name: formData.name,
       email: formData.email,
-      date: new Date(formData.date + 'T00:00:00'),
+      date: new Date(dateStr + 'T00:00:00'),
       time: formData.time,
       guests: formData.guests,
       phone: formData.phone,
@@ -205,10 +241,13 @@ function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit
             <label className="block text-sm font-medium text-neutral-700 mb-1">Nombre Completo</label>
             <input 
               required
+              minLength={3}
+              maxLength={100}
               type="text" 
               className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
               value={formData.name}
               onChange={e => setFormData({...formData, name: e.target.value})}
+              placeholder="Ej. Juan Pérez"
             />
           </div>
 
@@ -217,39 +256,62 @@ function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit
             <input 
               required
               type="email" 
+              maxLength={100}
               className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
               value={formData.email}
               onChange={e => setFormData({...formData, email: e.target.value})}
+              placeholder="correo@ejemplo.com"
             />
           </div>
           
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-1">Fecha</label>
-              <input 
-                required
-                type="date" 
-                className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
-                value={formData.date}
-                onChange={e => setFormData({...formData, date: e.target.value})}
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={`w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none flex items-center justify-between bg-white text-left ${!date ? "text-neutral-500" : "text-neutral-900"}`}
+                  >
+                    {date ? format(date, 'dd/MM/yyyy') : <span>Seleccionar fecha</span>}
+                    <CalendarIcon size={16} className="text-neutral-400" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 z-[100]" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={(newDate) => {
+                      setDate(newDate);
+                      setFormData(prev => ({...prev, time: ''})); // Reset time on date change
+                    }}
+                    disabled={(date) => {
+                      const d = new Date(date);
+                      d.setHours(0,0,0,0);
+                      return d < today;
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-1">Hora</label>
               <select 
                 required
-                className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none disabled:bg-neutral-100 disabled:text-neutral-400"
                 value={formData.time}
                 onChange={e => setFormData({...formData, time: e.target.value})}
+                disabled={!date || filteredTimes.length === 0}
               >
                 <option value="">Seleccionar</option>
-                <option value="12:00">12:00 PM</option>
-                <option value="13:00">1:00 PM</option>
-                <option value="14:00">2:00 PM</option>
-                <option value="19:00">7:00 PM</option>
-                <option value="20:00">8:00 PM</option>
-                <option value="21:00">9:00 PM</option>
+                {filteredTimes.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
+              {dateStr === todayStr && filteredTimes.length === 0 && (
+                <p className="text-xs text-red-500 mt-1">No hay horas disponibles para hoy.</p>
+              )}
             </div>
           </div>
 
@@ -284,9 +346,12 @@ function ReservationModal({ onClose, onSubmit }: { onClose: () => void, onSubmit
               <input 
                 required
                 type="tel" 
+                pattern="^\+?[0-9\s\-]{8,15}$"
+                title="Ingrese un número de teléfono válido (ej. +123456789 o 123456789)"
                 className="w-full px-4 py-2 rounded-lg border border-neutral-200 focus:ring-2 focus:ring-orange-500 focus:outline-none"
                 value={formData.phone}
                 onChange={e => setFormData({...formData, phone: e.target.value})}
+                placeholder="+57 300 0000000"
               />
             </div>
           </div>
