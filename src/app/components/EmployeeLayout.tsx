@@ -1,14 +1,13 @@
 import React, { useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router';
 import { LogOut } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
 export default function EmployeeLayout() {
   const navigate = useNavigate();
   const { profile, loading, clearLocalProfile } = useAuth();
   const employeeType = profile?.role ?? null;
-  const employeeName = profile?.full_name ?? profile?.email ?? '';
+  const employeeName = profile?.full_name ?? 'Empleado';
 
   useEffect(() => {
     // Si no hay sesión, redirigir al login
@@ -19,8 +18,7 @@ export default function EmployeeLayout() {
 
   const handleLogout = () => {
     clearLocalProfile();
-    supabase.auth.signOut();
-    navigate('/', { replace: true });
+    navigate('/login', { replace: true });
   };
 
   if (loading || !employeeType) return null;
@@ -34,8 +32,6 @@ export default function EmployeeLayout() {
           <div className="h-6 w-px bg-neutral-300" />
           <div className="text-sm text-neutral-600">
             <span className="font-medium text-neutral-900">{employeeName}</span>
-            {' · '}
-            <span className="capitalize">{employeeType}</span>
           </div>
         </div>
         <button

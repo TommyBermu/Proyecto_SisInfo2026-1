@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRestaurant, Order, OrderItem, Reservation } from '../context/RestaurantContext';
+import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
 import {
@@ -137,14 +138,29 @@ function SidebarButton({
 
 // ============= NEW ORDER VIEW =============
 function NewOrderView() {
-  const { createOrder, dishes } = useRestaurant();
-  // Extraer nombre del mesero desde localStorage
-  const waiterName = localStorage.getItem('employeeName') || 'Mesero';
-  const [selectedTable, setSelectedTable] = useState<number>(1);
+  const { createOrder, dishes, tables } = useRestaurant();
+  const { profile } = useAuth();
+  const [selectedTable, setSelectedTable] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [cartItems, setCartItems] = useState<OrderItem[]>([]);
   const [noteModalItem, setNoteModalItem] = useState<string | null>(null);
   const [tempNote, setTempNote] = useState('');
+
+  useEffect(() => {
+    const availableTables = tables.filter(table => table.status === 'disponible');
+    if (!selectedTable && availableTables.length > 0) {
+      setSelectedTable(availableTables[0].id);
+    }
+    if (selectedTable && !availableTables.some(table => table.id === selectedTable)) {
+      setSelectedTable(availableTables[0]?.id || '');
+    }
+  }, [tables, selectedTable]);
+
+  const occupiedTableIds = new Set(
+    tables
+      .filter(table => table.status !== 'disponible')
+      .map(table => table.id)
+  );
 
   const currentDate = new Date().toLocaleDateString('es-PE', {
     weekday: 'long',
@@ -207,19 +223,28 @@ function NewOrderView() {
     }, 0);
   };
 
-  const handleSubmitOrder = () => {
+  const handleSubmitOrder = async () => {
     if (cartItems.length === 0) {
       alert('Agrega al menos un item al pedido');
       return;
     }
 
-    const tableId = `t${selectedTable}`;
-    createOrder(tableId, cartItems, waiterName);
+    if (!selectedTable) {
+      alert('Selecciona una mesa');
+      return;
+    }
 
-    // Reset form
-    setCartItems([]);
-    setSelectedTable(1);
-    alert('Pedido creado exitosamente');
+    try {
+      await createOrder(selectedTable, cartItems, profile?.email || 'mesero@trilogia.com');
+
+      // Reset form
+      setCartItems([]);
+      setSelectedTable(tables[0]?.id || '');
+      alert('Pedido creado exitosamente');
+    } catch (error) {
+      console.error('Error sending order:', error);
+      alert('No se pudo guardar el pedido en Supabase');
+    }
   };
 
   return (
@@ -235,21 +260,25 @@ function NewOrderView() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="px-4 py-2 bg-neutral-100 border border-neutral-300 rounded-lg">
-              <span className="text-sm text-neutral-500">Mesero:</span>
-              <span className="ml-2 font-semibold text-neutral-900">{waiterName}</span>
-            </div>
             <select
               value={selectedTable}
-              onChange={(e) => setSelectedTable(Number(e.target.value))}
+              onChange={(e) => setSelectedTable(e.target.value)}
               className="px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 font-medium"
+              disabled={tables.length === 0 || tables.every(table => table.status !== 'disponible')}
             >
-              {Array.from({ length: 15 }, (_, i) => i + 1).map(num => (
-                <option key={num} value={num}>Mesa {num}</option>
+              {tables.map(table => (
+                <option key={table.id} value={table.id} disabled={occupiedTableIds.has(table.id)}>
+                  Mesa {table.number}{occupiedTableIds.has(table.id) ? ' - ocupada' : ''}
+                </option>
               ))}
             </select>
           </div>
         </div>
+        {selectedTable && occupiedTableIds.has(selectedTable) && (
+          <div className="mt-3 px-4 py-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm">
+            Esta mesa ya tiene un pedido abierto. Selecciona otra mesa disponible.
+          </div>
+        )}
       </div>
 
       {/* Main Panel */}
@@ -315,7 +344,6 @@ function NewOrderView() {
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
                         <h4 className="font-semibold text-neutral-900">{dish.name}</h4>
-                        <p className="text-sm text-neutral-500">S/ {dish.price.toFixed(2)} c/u</p>
                       </div>
                       <button
                         onClick={() => removeItem(item.dishId)}
@@ -495,7 +523,7 @@ function TablesView({
                   )}
 
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-lg font-bold text-neutral-900">Mesa {table?.number}</h3>
+                        <h3 className="text-lg font-bold text-neutral-900">Mesa {table?.number}</h3>
                     <span className={clsx(
                       "px-2 py-1 rounded-full text-xs font-medium",
                       isReady
@@ -505,6 +533,12 @@ function TablesView({
                       {isReady ? 'Lista' : 'En cocina'}
                     </span>
                   </div>
+
+                      {order.waiterName && (
+                        <div className="mb-2 text-xs text-neutral-500">
+                          Mesero: <span className="font-medium text-neutral-700">{order.waiterName}</span>
+                        </div>
+                      )}
 
                   <div className="flex items-center gap-2 text-sm text-neutral-600">
                     <Clock size={14} />
@@ -557,9 +591,6 @@ function TablesView({
                     return (
                       <div key={idx} className="flex justify-between items-start pb-3 border-b border-neutral-200 last:border-0">
                         <div className="flex gap-3">
-                          <span className="bg-neutral-100 text-neutral-600 w-6 h-6 flex items-center justify-center rounded text-xs font-bold">
-                            {item.quantity}x
-                          </span>
                           <div>
                             <p className="font-medium text-neutral-900">{dish.name}</p>
                             {item.notes && (
@@ -567,9 +598,6 @@ function TablesView({
                             )}
                           </div>
                         </div>
-                        <span className="font-medium text-neutral-700">
-                          S/ {(dish.price * item.quantity).toFixed(2)}
-                        </span>
                       </div>
                     );
                   })}

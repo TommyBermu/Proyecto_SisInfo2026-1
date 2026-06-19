@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useRestaurant, Order } from '../context/RestaurantContext';
+import { supabase } from '../../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle, Clock, AlertTriangle, EyeOff } from 'lucide-react';
+import { CheckCircle, Clock, AlertTriangle, EyeOff, Flame } from 'lucide-react';
 import { differenceInMinutes } from 'date-fns';
 import { clsx } from 'clsx';
 
 export default function KitchenView() {
-  const { orders, completeOrder, dishes, toggleDishStatus } = useRestaurant();
+  const { orders, completeOrder, dishes, toggleDishStatus, tables } = useRestaurant();
   const activeOrders = orders.filter(o => o.status !== 'completed').sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   // Stock Control Panel State
@@ -16,10 +17,13 @@ export default function KitchenView() {
     <div className="h-[calc(100vh-64px)] flex flex-col bg-neutral-900 text-white p-6 overflow-hidden">
       {/* Header */}
       <div className="flex justify-between items-center mb-8 border-b border-neutral-700 pb-4">
-        <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
-          <Clock className="text-orange-500" />
-          KDS - Cocina
-        </h1>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+            <Clock className="text-orange-500" />
+            KDS - Cocina
+          </h1>
+          <p className="text-sm text-neutral-400 mt-1">{activeOrders.length} órdenes activas</p>
+        </div>
         <button 
           onClick={() => setIsStockPanelOpen(!isStockPanelOpen)}
           className={clsx(
@@ -47,6 +51,7 @@ export default function KitchenView() {
                   order={order} 
                   onComplete={() => completeOrder(order.id)} 
                   dishes={dishes}
+                  tables={tables}
                 />
               ))
             )}
@@ -95,8 +100,10 @@ export default function KitchenView() {
   );
 }
 
-function OrderTicket({ order, onComplete, dishes }: { order: Order; onComplete: () => void; dishes: any[] }) {
+function OrderTicket({ order, onComplete, dishes, tables }: { order: Order; onComplete: () => void; dishes: any[]; tables: any[] }) {
   const [elapsed, setElapsed] = useState(0);
+  const [isPrepping, setIsPrepping] = useState(order.status === 'cooking');
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -106,7 +113,29 @@ function OrderTicket({ order, onComplete, dishes }: { order: Order; onComplete: 
     return () => clearInterval(interval);
   }, [order.createdAt]);
 
+  // Update local state when order status changes
+  useEffect(() => {
+    setIsPrepping(order.status === 'cooking');
+  }, [order.status]);
+
   const isLate = elapsed > 20; // Alert if > 20 mins
+
+  const handleStartPrepping = async () => {
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('pedido')
+        .update({ estado_preparacion: 'en_preparacion' })
+        .eq('id', order.id);
+
+      if (error) throw error;
+      setIsPrepping(true);
+    } catch (err) {
+      console.error('Error updating order status:', err);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   return (
     <motion.div
@@ -116,20 +145,23 @@ function OrderTicket({ order, onComplete, dishes }: { order: Order; onComplete: 
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
       className={clsx(
         "w-[320px] h-full flex flex-col rounded-xl overflow-hidden border-2 shadow-lg bg-neutral-800 relative",
-        isLate ? "border-red-500" : "border-neutral-700"
+        isLate ? "border-red-500" : isPrepping ? "border-orange-500" : "border-neutral-700"
       )}
     >
       <div className={clsx(
         "p-4 flex justify-between items-center text-white",
-        isLate ? "bg-red-600" : "bg-neutral-700"
+        isLate ? "bg-red-600" : isPrepping ? "bg-orange-600" : "bg-neutral-700"
       )}>
         <div>
           <span className="text-xs font-bold opacity-75 block">Mesa</span>
-          <span className="text-2xl font-bold">#{order.tableId.replace('t', '')}</span>
+          <span className="text-2xl font-bold">#{tables.find((table) => table.id === order.tableId)?.number ?? 'N/A'}</span>
         </div>
         <div className="text-right">
           <span className="text-xs font-bold opacity-75 block">Tiempo</span>
           <span className="text-xl font-mono">{elapsed}m</span>
+          {isPrepping && (
+            <span className="text-xs font-bold opacity-75 block mt-1 text-yellow-300">EN PREP.</span>
+          )}
         </div>
       </div>
 
@@ -151,13 +183,25 @@ function OrderTicket({ order, onComplete, dishes }: { order: Order; onComplete: 
         })}
       </div>
 
-      <div className="p-4 bg-neutral-800 border-t border-neutral-700">
+      <div className="p-4 bg-neutral-800 border-t border-neutral-700 flex flex-col gap-3">
+        {!isPrepping ? (
+          <button 
+            onClick={handleStartPrepping}
+            disabled={isUpdating}
+            className="w-full py-3 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold rounded-lg uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20 transition-all"
+          >
+            <Flame size={20} />
+            Preparar
+          </button>
+        ) : null}
+        
         <button 
           onClick={onComplete}
-          className="w-full py-4 bg-green-600 hover:bg-green-500 text-white font-bold rounded-lg uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-green-900/20 transition-all"
+          disabled={isUpdating}
+          className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold rounded-lg uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-green-900/20 transition-all"
         >
-          <CheckCircle size={24} />
-          Completado
+          <CheckCircle size={20} />
+          {isPrepping ? 'Listo' : 'Completar'}
         </button>
       </div>
     </motion.div>
