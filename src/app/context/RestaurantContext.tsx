@@ -16,6 +16,7 @@ export interface Dish {
   image: string;
   category: string;
   status: DishStatus;
+  stockLabel?: string;
 }
 
 export interface Table {
@@ -76,170 +77,6 @@ interface RestaurantContextType {
   addReservation: (reservation: Reservation) => void;
 }
 
-// --- Mock Data ---
-
-const INITIAL_DISHES: Dish[] = [
-  {
-    id: '00000000-0000-0000-0000-000000000001',
-    name: 'Lomo Saltado',
-    description: 'Trozos de carne salteados con cebolla, tomate y papas fritas.',
-    price: 45.00,
-    image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&q=80',
-    category: 'Platos Fuertes',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000002',
-    name: 'Ceviche Clásico',
-    description: 'Pescado fresco marinado en limón con cebolla y cilantro.',
-    price: 38.00,
-    image: 'https://images.unsplash.com/photo-1535914254981-b5012eebbd15?auto=format&fit=crop&q=80',
-    category: 'Entradas',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000003',
-    name: 'Aji de Gallina',
-    description: 'Pollo deshilachado en una crema de ají amarillo con papas.',
-    price: 35.00,
-    image: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&q=80',
-    category: 'Platos Fuertes',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000004',
-    name: 'Pisco Sour',
-    description: 'Cóctel clásico peruano a base de pisco y limón.',
-    price: 25.00,
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?auto=format&fit=crop&q=80',
-    category: 'Bebidas',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000005',
-    name: 'Suspiro a la Limeña',
-    description: 'Postre tradicional de manjar blanco y merengue.',
-    price: 18.00,
-    image: 'https://images.unsplash.com/photo-1605090931399-163ac71a4218?auto=format&fit=crop&q=80',
-    category: 'Postres',
-    status: 'inactive',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000006',
-    name: 'Causa Limeña',
-    description: 'Suave pastel de papa amarilla relleno de pollo, palta y mayonesa.',
-    price: 22.00,
-    image: 'https://images.unsplash.com/photo-1766456127047-806cdecdc139?auto=format&fit=crop&q=80',
-    category: 'Entradas',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000007',
-    name: 'Papa a la Huancaína',
-    description: 'Papas hervidas cubiertas con una salsa cremosa de queso y ají amarillo.',
-    price: 20.00,
-    image: 'https://images.unsplash.com/photo-1646304730898-4bb884b3e2da?auto=format&fit=crop&q=80',
-    category: 'Entradas',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000008',
-    name: 'Anticuchos',
-    description: 'Brochetas de corazón de res marinadas en especias y asadas a la parrilla.',
-    price: 28.00,
-    image: 'https://images.unsplash.com/photo-1761315414620-7f0f3ebdd866?auto=format&fit=crop&q=80',
-    category: 'Entradas',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000009',
-    name: 'Pollo a la Brasa',
-    description: 'Pollo asado al carbón acompañado de papas fritas y ensalada.',
-    price: 55.00,
-    image: 'https://images.unsplash.com/photo-1516684465974-78661ba8165d?auto=format&fit=crop&q=80',
-    category: 'Platos Fuertes',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000010',
-    name: 'Tacu Tacu con Lomo',
-    description: 'Mezcla de arroz y frijoles fritos servido con lomo saltado.',
-    price: 48.00,
-    image: 'https://images.unsplash.com/photo-1726514734441-dde9eabd9208?auto=format&fit=crop&q=80',
-    category: 'Platos Fuertes',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000011',
-    name: 'Chicha Morada',
-    description: 'Refrescante bebida de maíz morado con piña, canela y clavo.',
-    price: 12.00,
-    image: 'https://images.unsplash.com/photo-1706463267841-70aa1d625fdc?auto=format&fit=crop&q=80',
-    category: 'Bebidas',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000012',
-    name: 'Inca Kola',
-    description: 'La bebida del sabor nacional.',
-    price: 8.00,
-    image: 'https://images.unsplash.com/photo-1619517448766-3ca8bd5198af?auto=format&fit=crop&q=80',
-    category: 'Bebidas',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000013',
-    name: 'Mazamorra Morada',
-    description: 'Postre de maíz morado con frutas secas y especias.',
-    price: 15.00,
-    image: 'https://images.unsplash.com/photo-1708782340357-b7b38d653979?auto=format&fit=crop&q=80',
-    category: 'Postres',
-    status: 'active',
-  },
-  {
-    id: '00000000-0000-0000-0000-000000000014',
-    name: 'Picarones',
-    description: 'Anillos de masa frita de zapallo y camote bañados en miel de chancaca.',
-    price: 18.00,
-    image: 'https://images.unsplash.com/photo-1709203813530-cdb59bd1411f?auto=format&fit=crop&q=80',
-    category: 'Postres',
-    status: 'active',
-  },
-];
-
-// Orders are loaded from Supabase only - no stub data
-const INITIAL_ORDERS: Order[] = [];
-
-const INITIAL_RESERVATIONS: Reservation[] = [
-  {
-    id: 'r1',
-    name: 'Carlos Mendoza',
-    date: new Date(),
-    time: '19:00',
-    guests: 4,
-    phone: '999-888-777',
-    notes: 'Mesa cerca de la ventana, cumpleaños',
-  },
-  {
-    id: 'r2',
-    name: 'Ana Torres',
-    date: new Date(),
-    time: '20:30',
-    guests: 2,
-    phone: '999-111-222',
-    notes: 'Aniversario, ambiente romántico',
-  },
-  {
-    id: 'r3',
-    name: 'Roberto Silva',
-    date: new Date(),
-    time: '21:00',
-    guests: 6,
-    phone: '999-333-444',
-    notes: 'Reunion de negocios',
-  },
-];
-
 // --- Context ---
 
 const RestaurantContext = createContext<RestaurantContextType | undefined>(undefined);
@@ -279,17 +116,44 @@ const mapFrontendStatusToDB = (status: OrderStatus): PedidoEstadoDB => {
 };
 
 export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
-  const [dishes, setDishes] = useState<Dish[]>(INITIAL_DISHES);
+  const [dishes, setDishes] = useState<Dish[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+
+  const fetchDishes = async () => {
+    try {
+      const [{ data: categories, error: categoriesError }, { data, error }] = await Promise.all([
+        supabase.from('categoria').select('id, nombre'),
+        supabase.from('plato').select('id, nombre, descripcion, valor_actual, foto_url, estado, categoria_id').order('nombre', { ascending: true }),
+      ]);
+
+      if (categoriesError) throw categoriesError;
+      if (error) throw error;
+
+      const categoryById = new Map((categories || []).map((category: any) => [category.id, category.nombre]));
+
+      setDishes((data || []).map((plato: any) => ({
+        id: plato.id,
+        name: plato.nombre,
+        description: plato.descripcion || '',
+        price: Number(plato.valor_actual),
+        image: plato.foto_url || '',
+        category: categoryById.get(plato.categoria_id) || 'General',
+        status: plato.estado === 'inactive' ? 'inactive' : 'active',
+        stockLabel: plato.estado === 'inactive' ? 'Agotado' : 'Disponible',
+      })));
+    } catch (err) {
+      console.error('Error fetching dishes:', err);
+      setDishes([]);
+    }
+  };
 
   const mapMesaToTable = (mesa: any, index: number): Table => ({
     id: mesa.id,
     number: Number(mesa.numero),
     status: mesa.estado || 'disponible',
     seats: mesa.capacidad,
-    waiterName: mesa.waiter_name ?? mesa.full_name ?? undefined,
     position: { x: index % 4, y: Math.floor(index / 4) },
   });
 
@@ -358,11 +222,11 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
         if (meseroIds.length > 0) {
           const { data: meseros } = await supabase
             .from('empleado')
-            .select('id, nombre, apellido, full_name, email')
+            .select('id, nombre, apellido, email')
             .in('id', meseroIds);
 
           (meseros || []).forEach((mesero: any) => {
-            const displayName = mesero.full_name || [mesero.nombre, mesero.apellido].filter(Boolean).join(' ').trim() || mesero.email || 'Mesero';
+            const displayName = [mesero.nombre, mesero.apellido].filter(Boolean).join(' ').trim() || mesero.email || 'Mesero';
             meserosById.set(mesero.id, displayName);
           });
         }
@@ -383,8 +247,13 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
 
           const total = items.reduce((acc, item) => {
             const detail = detalles?.find((d: any) => d.plato_id === item.dishId);
-            return acc + (detail ? detail.precio_unitario * item.quantity : 0);
+            return acc + (detail ? Number(detail.precio_unitario) * item.quantity : 0);
           }, 0);
+
+          // Preserve viewedByWaiter from local state when available so waiter clicks persist across refetches
+          const existing = orders.find((o) => o.id === pedido.id);
+          const viewedDefault = pedido.estado_preparacion === 'listo' ? false : true;
+          const viewedFlag = existing?.viewedByWaiter ?? viewedDefault;
 
           ordersWithDetails.push({
             id: pedido.id,
@@ -396,7 +265,7 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
             horaPedido: pedido.hora_pedido || undefined,
             total,
             waiterName: meserosById.get(pedido.mesero_id) || 'Mesero',
-            viewedByWaiter: true,
+            viewedByWaiter: viewedFlag,
             meseroId: pedido.mesero_id,
           });
         }
@@ -437,40 +306,53 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    fetchDishes();
     fetchOrders();
     fetchReservations();
     fetchTables();
 
     // Set up realtime subscriptions
+    const platosChannel = supabase
+      .channel('public:plato')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plato' }, () => {
+        fetchDishes();
+      })
+      .subscribe();
+
     const reservasChannel = supabase
       .channel('public:reserva')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reserva' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reserva' }, (payload) => {
+        console.debug('Supabase reserva change:', payload);
         fetchReservations();
       })
       .subscribe();
 
     const pedidosChannel = supabase
       .channel('public:pedido')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedido' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedido' }, (payload) => {
+        console.debug('Supabase pedido change:', payload);
         fetchOrders();
       })
       .subscribe();
 
     const detallesChannel = supabase
       .channel('public:detalle_pedido')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_pedido' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'detalle_pedido' }, (payload) => {
+        console.debug('Supabase detalle_pedido change:', payload);
         fetchOrders();
       })
       .subscribe();
 
     const mesasChannel = supabase
       .channel('public:mesa')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'mesa' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mesa' }, (payload) => {
+        console.debug('Supabase mesa change:', payload);
         fetchTables();
       })
       .subscribe();
 
     return () => {
+      supabase.removeChannel(platosChannel);
       supabase.removeChannel(reservasChannel);
       supabase.removeChannel(pedidosChannel);
       supabase.removeChannel(detallesChannel);
@@ -492,7 +374,7 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
           name: r.nombre || 'Sin nombre',
           date: new Date(r.fecha + 'T00:00:00'),
           time: r.hora,
-          guests: r.num_personas,
+          guests: Number(r.num_personas),
           phone: r.telefono || '',
           notes: r.anotaciones,
         }));
@@ -504,7 +386,17 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const toggleDishStatus = (id: string) => {
-    setDishes(prev => prev.map(d => d.id === id ? { ...d, status: d.status === 'active' ? 'inactive' : 'active' } : d));
+    const currentDish = dishes.find(dish => dish.id === id);
+    const nextStatus = currentDish?.status === 'active' ? 'inactive' : 'active';
+
+    setDishes(prev => prev.map(d => d.id === id ? { ...d, status: nextStatus, stockLabel: nextStatus === 'inactive' ? 'Agotado' : 'Disponible' } : d));
+    supabase
+      .from('plato')
+      .update({ estado: nextStatus })
+      .eq('id', id)
+      .then(({ error }) => {
+        if (error) console.error('Error updating plato stock:', error);
+      });
   };
 
   const updateTableStatus = (id: string, status: TableStatus) => {
@@ -520,19 +412,27 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
 
   const createOrder = async (tableId: string, items: OrderItem[], waiterName?: string) => {
     try {
-      const waiterEmail = waiterName?.includes('@') ? waiterName : 'mesero@trilogia.com';
-      const { data: empleado, error: empleadoError } = await supabase
-        .from('empleado')
-        .select('id, nombre, apellido, email, rol')
-        .eq('email', waiterEmail)
-        .eq('rol', 'mesero')
-        .single();
+      // Determine waiter / mesero id if we received an email; otherwise proceed without failing
+      let meseroId: string | undefined = undefined;
+      let waiterDisplayName = waiterName || 'Mesero';
 
-      if (empleadoError || !empleado) {
-        throw new Error(`No empleado mesero found for email ${waiterEmail}`);
+      if (waiterName && waiterName.includes('@')) {
+        const waiterEmail = waiterName;
+        const { data: empleado, error: empleadoError } = await supabase
+          .from('empleado')
+          .select('id, nombre, apellido, email, rol')
+          .eq('email', waiterEmail)
+          .eq('rol', 'mesero')
+          .single();
+
+        if (!empleado || empleadoError) {
+          console.warn('No empleado mesero found for email', waiterEmail, empleadoError);
+          // fallback: keep meseroId undefined and use provided waiterName as display
+        } else {
+          meseroId = empleado.id;
+          waiterDisplayName = [empleado.nombre, empleado.apellido].filter(Boolean).join(' ').trim() || empleado.email || waiterDisplayName;
+        }
       }
-
-      const meseroId = empleado.id;
 
       const mesaId = resolveMesaId(tableId);
       const horaPedido = new Date().toTimeString().slice(0, 8);
@@ -544,7 +444,7 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
           {
             fecha: new Date().toISOString().split('T')[0],
             mesa_id: mesaId,
-            mesero_id: meseroId,
+            mesero_id: meseroId ?? null,
             estado_preparacion: 'pendiente',
             hora_pedido: horaPedido,
             prioridad: 0,

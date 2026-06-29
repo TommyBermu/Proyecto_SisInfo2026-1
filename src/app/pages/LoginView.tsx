@@ -5,6 +5,17 @@ import { motion } from 'motion/react';
 import { supabase } from '../../lib/supabase';
 import { useAuth, type Profile, type UserRole } from '../context/AuthContext';
 
+const ROLE_MAP: Record<string, UserRole> = {
+  gerente: 'admin',
+  mesero: 'waiter',
+  chef: 'kitchen',
+  cajero: 'cashier',
+  admin: 'admin',
+  waiter: 'waiter',
+  kitchen: 'kitchen',
+  cashier: 'cashier',
+};
+
 const ROLE_ROUTE: Record<UserRole, string> = {
   admin: '/empleado/administrador',
   waiter: '/empleado/mesero',
@@ -32,9 +43,9 @@ export default function LoginView() {
       setError('');
 
       const { data, error: fetchError } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, role')
-        .order('full_name', { ascending: true });
+        .from('empleado')
+        .select('id, email, nombre, apellido, rol')
+        .order('nombre', { ascending: true });
 
       if (fetchError) {
         console.error('Error loading profiles:', fetchError);
@@ -44,13 +55,17 @@ export default function LoginView() {
         return;
       }
 
-      const allowedRoles: UserRole[] = ['admin', 'waiter', 'kitchen', 'cashier'];
       const filteredProfiles = (data ?? [])
-        .filter((item): item is Profile => allowedRoles.includes(item.role as UserRole))
         .map((item) => ({
           ...item,
-          role: item.role as UserRole,
-          full_name: item.full_name ?? item.email ?? 'Empleado',
+          role: ROLE_MAP[item.rol] || null,
+        }))
+        .filter((item): item is { id: string; email: string | null; nombre: string | null; apellido: string | null; rol: string; role: UserRole } => Boolean(item.role))
+        .map((item) => ({
+          id: item.id,
+          email: item.email,
+          role: item.role,
+          full_name: [item.nombre, item.apellido].filter(Boolean).join(' ').trim() || item.email || 'Empleado',
         }));
 
       setProfiles(filteredProfiles);

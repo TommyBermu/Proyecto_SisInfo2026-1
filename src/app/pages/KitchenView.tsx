@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useRestaurant, Order } from '../context/RestaurantContext';
 import { supabase } from '../../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle, Clock, AlertTriangle, EyeOff, Flame } from 'lucide-react';
+import { CheckCircle, Clock, AlertTriangle, EyeOff, Flame, Clipboard } from 'lucide-react';
 import { differenceInMinutes } from 'date-fns';
 import { clsx } from 'clsx';
 
 export default function KitchenView() {
   const { orders, completeOrder, dishes, toggleDishStatus, tables } = useRestaurant();
-  const activeOrders = orders.filter(o => o.status !== 'completed').sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [stockSearch, setStockSearch] = useState('');
+  // Only show orders that are pending or currently cooking in the main KDS
+  const activeOrders = orders.filter(o => o.status === 'pending' || o.status === 'cooking').sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   // Stock Control Panel State
   const [isStockPanelOpen, setIsStockPanelOpen] = useState(false);
@@ -24,16 +27,28 @@ export default function KitchenView() {
           </h1>
           <p className="text-sm text-neutral-400 mt-1">{activeOrders.length} órdenes activas</p>
         </div>
-        <button 
-          onClick={() => setIsStockPanelOpen(!isStockPanelOpen)}
-          className={clsx(
-            "px-6 py-2 rounded-lg font-bold transition-colors flex items-center gap-2",
-            isStockPanelOpen ? "bg-red-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
-          )}
-        >
-          <EyeOff size={18} />
-          Control de Stock
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+            className={clsx(
+              "px-4 py-2 rounded-lg font-bold transition-colors flex items-center gap-2",
+              isHistoryOpen ? "bg-neutral-700 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
+            )}
+          >
+            <Clipboard size={16} />
+            Historial
+          </button>
+          <button 
+            onClick={() => setIsStockPanelOpen(!isStockPanelOpen)}
+            className={clsx(
+              "px-6 py-2 rounded-lg font-bold transition-colors flex items-center gap-2",
+              isStockPanelOpen ? "bg-red-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
+            )}
+          >
+            <EyeOff size={18} />
+            Control de Stock
+          </button>
+        </div>
       </div>
 
       {/* Orders Grid */}
@@ -74,8 +89,16 @@ export default function KitchenView() {
                 <AlertTriangle size={24} />
               </button>
             </div>
+            <div className="mb-4 max-w-md">
+              <input
+                value={stockSearch}
+                onChange={(e) => setStockSearch(e.target.value)}
+                placeholder="Buscar platillo..."
+                className="w-full px-4 py-2 rounded-lg bg-neutral-700 border border-neutral-600 text-white placeholder-neutral-400 outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {dishes.map(dish => (
+              {dishes.filter(dish => dish.name.toLowerCase().includes(stockSearch.toLowerCase())).map(dish => (
                 <button
                   key={dish.id}
                   onClick={() => toggleDishStatus(dish.id)}
@@ -92,6 +115,45 @@ export default function KitchenView() {
                   </div>
                 </button>
               ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* History Panel Overlay */}
+      <AnimatePresence>
+        {isHistoryOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="absolute bottom-0 left-0 right-0 h-1/3 bg-neutral-800 border-t border-neutral-700 shadow-2xl z-50 p-6 overflow-y-auto"
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-white">Historial - Pedidos Listos / Completados</h3>
+              <button onClick={() => setIsHistoryOpen(false)} className="text-neutral-400 hover:text-white">
+                <AlertTriangle size={24} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {orders.filter(o => o.status === 'ready' || o.status === 'completed').length === 0 ? (
+                <div className="text-neutral-400 italic">No hay pedidos en el historial</div>
+              ) : (
+                orders
+                  .filter(o => o.status === 'ready' || o.status === 'completed')
+                  .map(o => (
+                    <div key={o.id} className="p-3 bg-neutral-700 rounded-lg border border-neutral-600">
+                      <div className="flex justify-between items-center mb-2">
+                        <div>
+                          <div className="text-sm text-neutral-300">Mesa {tables.find(t => t.id === o.tableId)?.number ?? 'N/A'}</div>
+                          <div className="text-xs text-neutral-400">Pedido #{o.id.substring(0, 8)}</div>
+                        </div>
+                        <div className="text-sm font-medium text-green-200">{o.status === 'ready' ? 'Listo para recoger' : 'Completado'}</div>
+                      </div>
+                      <div className="text-sm text-neutral-300">{o.items.length} items · S/ {o.total.toFixed(2)}</div>
+                    </div>
+                  ))
+              )}
             </div>
           </motion.div>
         )}
@@ -119,23 +181,7 @@ function OrderTicket({ order, onComplete, dishes, tables }: { order: Order; onCo
   }, [order.status]);
 
   const isLate = elapsed > 20; // Alert if > 20 mins
-
-  const handleStartPrepping = async () => {
-    setIsUpdating(true);
-    try {
-      const { error } = await supabase
-        .from('pedido')
-        .update({ estado_preparacion: 'en_preparacion' })
-        .eq('id', order.id);
-
-      if (error) throw error;
-      setIsPrepping(true);
-    } catch (err) {
-      console.error('Error updating order status:', err);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+  const isUpdatingRef = isUpdating; // keep naming but we don't need extra handler here
 
   return (
     <motion.div
@@ -184,17 +230,6 @@ function OrderTicket({ order, onComplete, dishes, tables }: { order: Order; onCo
       </div>
 
       <div className="p-4 bg-neutral-800 border-t border-neutral-700 flex flex-col gap-3">
-        {!isPrepping ? (
-          <button 
-            onClick={handleStartPrepping}
-            disabled={isUpdating}
-            className="w-full py-3 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold rounded-lg uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20 transition-all"
-          >
-            <Flame size={20} />
-            Preparar
-          </button>
-        ) : null}
-        
         <button 
           onClick={onComplete}
           disabled={isUpdating}

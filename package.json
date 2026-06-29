@@ -6,6 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite"
+    ,
+    "seed:db": "node ./scripts/seed-supabase.js"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

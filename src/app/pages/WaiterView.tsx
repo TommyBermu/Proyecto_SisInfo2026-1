@@ -21,25 +21,27 @@ export default function WaiterView() {
   // Contar pedidos completados no vistos
   const unviewedCompletedCount = orders.filter(o => o.status === 'ready' && !o.viewedByWaiter).length;
 
-  // Manejar cambio de vista para marcar pedidos como vistos
-  useEffect(() => {
-    if (activeTab === 'tables') {
-      // Marcar todos como vistos cuando el mesero entra a la sección
-      orders.filter(o => o.status === 'ready' && !o.viewedByWaiter).forEach(order => {
-        // Esperar un momento antes de marcar como visto
-        setTimeout(() => markOrderAsViewed(order.id), 1000);
-      });
-    }
-  }, [activeTab]);
+  // No marcar todos por defecto; marcamos solamente la mesa que el mesero selecciona.
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
     setSelectedTableForView(null);
   };
 
+  const handleSelectTable = (id: string | null) => {
+    setSelectedTableForView(id);
+    if (id) {
+      // Find the order for this table and mark it as viewed
+      const order = orders.find(o => o.tableId === id && o.status === 'ready');
+      if (order && !order.viewedByWaiter) {
+        markOrderAsViewed(order.id);
+      }
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-64px)] bg-neutral-50 overflow-hidden">
-      {/* Sidebar Navigation */}
+      d.name.toLowerCase().includes(searchQuery.toLowerCase())
       <aside className={clsx(
         "bg-white border-r border-neutral-200 flex flex-col shadow-sm transition-all duration-300",
         sidebarCollapsed ? "w-16" : "w-64"
@@ -91,7 +93,7 @@ export default function WaiterView() {
         {activeTab === 'tables' && (
           <TablesView
             selectedTableId={selectedTableForView}
-            onSelectTable={setSelectedTableForView}
+            onSelectTable={handleSelectTable}
           />
         )}
         {activeTab === 'reservations' && <ReservationsView />}
@@ -243,7 +245,8 @@ function NewOrderView() {
       alert('Pedido creado exitosamente');
     } catch (error) {
       console.error('Error sending order:', error);
-      alert('No se pudo guardar el pedido en Supabase');
+      const message = (error && (error as any).message) ? (error as any).message : String(error);
+      alert('No se pudo guardar el pedido en Supabase: ' + message);
     }
   };
 
