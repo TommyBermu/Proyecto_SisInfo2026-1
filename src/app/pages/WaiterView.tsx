@@ -34,14 +34,13 @@ export default function WaiterView() {
       // Find the order for this table and mark it as viewed
       const order = orders.find(o => o.tableId === id && o.status === 'ready');
       if (order && !order.viewedByWaiter) {
-        markOrderAsViewed(order.id);
+        void markOrderAsViewed(order.id);
       }
     }
   };
 
   return (
     <div className="flex h-[calc(100vh-64px)] bg-neutral-50 overflow-hidden">
-      d.name.toLowerCase().includes(searchQuery.toLowerCase())
       <aside className={clsx(
         "bg-white border-r border-neutral-200 flex flex-col shadow-sm transition-all duration-300",
         sidebarCollapsed ? "w-16" : "w-64"
@@ -241,7 +240,7 @@ function NewOrderView() {
 
       // Reset form
       setCartItems([]);
-      setSelectedTable(tables[0]?.id || '');
+      setSelectedTable(tables.find(table => table.status === 'disponible')?.id || '');
       alert('Pedido creado exitosamente');
     } catch (error) {
       console.error('Error sending order:', error);
@@ -263,18 +262,36 @@ function NewOrderView() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <select
-              value={selectedTable}
-              onChange={(e) => setSelectedTable(e.target.value)}
-              className="px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 font-medium"
-              disabled={tables.length === 0 || tables.every(table => table.status !== 'disponible')}
-            >
-              {tables.map(table => (
-                <option key={table.id} value={table.id} disabled={occupiedTableIds.has(table.id)}>
-                  Mesa {table.number}{occupiedTableIds.has(table.id) ? ' - ocupada' : ''}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-col gap-2 items-end">
+              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Mesa activa</span>
+              <div className="flex flex-wrap gap-2 max-w-xl justify-end">
+                {tables.map(table => {
+                  const isAvailable = table.status === 'disponible';
+                  const isSelected = selectedTable === table.id;
+                  return (
+                    <button
+                      key={table.id}
+                      type="button"
+                      onClick={() => isAvailable && setSelectedTable(table.id)}
+                      disabled={!isAvailable}
+                      className={clsx(
+                        "min-w-[92px] px-3 py-2 rounded-lg border text-left transition-all",
+                        isSelected
+                          ? "bg-neutral-900 text-white border-neutral-900 shadow-md"
+                          : isAvailable
+                            ? "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"
+                            : "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
+                      )}
+                    >
+                      <div className="text-sm font-bold">Mesa {table.number}</div>
+                      <div className="text-[11px] uppercase tracking-wide">
+                        {isAvailable ? 'Disponible' : table.status.replace('_', ' ')}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
         {selectedTable && occupiedTableIds.has(selectedTable) && (

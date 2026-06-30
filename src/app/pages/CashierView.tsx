@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { CreditCard, DollarSign, Receipt, Calculator, TrendingUp, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { useRestaurant } from '../context/RestaurantContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function CashierView() {
-  const { orders, tables, dishes } = useRestaurant();
+  const { orders, tables, dishes, processPayment } = useRestaurant();
+  const { profile } = useAuth();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'card' | 'transfer'>('cash');
+  const [processingOrderId, setProcessingOrderId] = useState<string | null>(null);
 
   // Filtrar órdenes pendientes de pago
-  const pendingPaymentOrders = orders.filter(o => o.status === 'ready' || o.status === 'completed');
+  const pendingPaymentOrders = orders.filter(o => o.status === 'ready');
 
   // Calcular totales del día
   const totalSales = orders.reduce((acc, order) => acc + order.total, 0);
@@ -21,6 +24,25 @@ export default function CashierView() {
   const getDishName = (dishId: string) => {
     const dish = dishes.find(d => d.id === dishId);
     return dish ? dish.name : 'Desconocido';
+  };
+
+  const handleProcessPayment = async (orderId: string) => {
+    if (!profile) {
+      alert('No se encontró el perfil del cajero');
+      return;
+    }
+
+    try {
+      setProcessingOrderId(orderId);
+      await processPayment(orderId, profile.id, selectedPaymentMethod, 0);
+      alert('Pago procesado correctamente');
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      const message = error && (error as any).message ? (error as any).message : String(error);
+      alert('No se pudo procesar el pago: ' + message);
+    } finally {
+      setProcessingOrderId(null);
+    }
   };
 
   return (
@@ -167,9 +189,13 @@ export default function CashierView() {
                       ))}
                     </div>
 
-                    <button className="w-full bg-neutral-900 text-white py-3 rounded-lg font-medium hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2">
+                    <button
+                      onClick={() => void handleProcessPayment(order.id)}
+                      disabled={processingOrderId === order.id}
+                      className="w-full bg-neutral-900 text-white py-3 rounded-lg font-medium hover:bg-neutral-800 disabled:bg-neutral-400 transition-colors flex items-center justify-center gap-2"
+                    >
                       <CreditCard size={20} />
-                      <span>Procesar Pago ({selectedPaymentMethod === 'cash' ? 'Efectivo' : selectedPaymentMethod === 'card' ? 'Tarjeta' : 'Transferencia'})</span>
+                      <span>{processingOrderId === order.id ? 'Procesando...' : `Procesar Pago (${selectedPaymentMethod === 'cash' ? 'Efectivo' : selectedPaymentMethod === 'card' ? 'Tarjeta' : 'Transferencia'})`}</span>
                     </button>
                   </div>
                 ))

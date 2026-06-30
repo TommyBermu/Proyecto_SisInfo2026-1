@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRestaurant, Order } from '../context/RestaurantContext';
-import { supabase } from '../../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle, Clock, AlertTriangle, EyeOff, Flame, Clipboard } from 'lucide-react';
 import { differenceInMinutes } from 'date-fns';

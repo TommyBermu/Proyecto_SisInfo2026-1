@@ -20,6 +20,8 @@ type DataStatus = 'loading' | 'error' | 'empty' | 'success';
 const heatmapDays = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
 const heatmapHours = ['12:00', '13:00', '14:00', '15:00', '19:00', '20:00', '21:00', '22:00'];
 type SalesTrend = { name: string; current: number; lastMonth: number; lastYear: number };
+type HeatmapPoint = { day: string; hour: string; value: number };
+type CostsData = { fixed: number; variable: number; foodCost: number; breakeven: number; sales: number };
 type MenuEngineeringRow = { id: string; name: string; margin: number; popularity: number; prepTime: number; category: string };
 type TransactionRow = { id: string; table: string; waiter: string; payment: string; time: string; amount: number; status: 'Pagado' | 'Reembolso' };
 type InventoryRow = { id: string; item: string; user: string; type: 'Entrada' | 'Salida'; reason: string; impact: number; date: string };
@@ -29,6 +31,24 @@ type CRMRow = { id: string; name: string; visits: number; avgSpend: number; favo
 type RawMaterialRow = { id: string; name: string; unit: string; stock: number; minStock: number; category: string; supplier: string };
 
 const COLORS = ['#ea580c', '#f97316', '#fb923c', '#fdba74', '#fed7aa'];
+const heatmapData: HeatmapPoint[] = [
+  { day: 'Lun', hour: '12:00', value: 12 },
+  { day: 'Lun', hour: '13:00', value: 24 },
+  { day: 'Lun', hour: '14:00', value: 18 },
+  { day: 'Mar', hour: '19:00', value: 42 },
+  { day: 'Mie', hour: '20:00', value: 58 },
+  { day: 'Jue', hour: '21:00', value: 73 },
+  { day: 'Vie', hour: '22:00', value: 81 },
+  { day: 'Sab', hour: '20:00', value: 88 },
+  { day: 'Dom', hour: '19:00', value: 65 },
+];
+const costsData: CostsData = {
+  fixed: 18500,
+  variable: 12400,
+  foodCost: 28.4,
+  breakeven: 41250,
+  sales: 32450,
+};
 
 export default function AdminView() {
   const [activeTab, setActiveTab] = useState<'sales' | 'audit' | 'staff' | 'costs' | 'crm' | 'inventory'>('sales');
@@ -210,12 +230,12 @@ export default function AdminView() {
             exit={{ opacity: 0, y: -10 }}
             className="p-8 h-full"
           >
-            {activeTab === 'sales' && <SalesModule status={dataStatus} />}
-            {activeTab === 'inventory' && <InventoryModule status={dataStatus} />}
-            {activeTab === 'audit' && <AuditModule status={dataStatus} />}
-            {activeTab === 'staff' && <StaffModule status={dataStatus} />}
-            {activeTab === 'costs' && <CostsModule status={dataStatus} />}
-            {activeTab === 'crm' && <CRMModule status={dataStatus} />}
+            {activeTab === 'sales' && <SalesModule status={dataStatus} salesTrends={salesTrends} menuEngineering={menuEngineering} />}
+            {activeTab === 'inventory' && <InventoryModule status={dataStatus} rawMaterials={rawMaterials} />}
+            {activeTab === 'audit' && <AuditModule status={dataStatus} transactions={transactions} inventoryLogs={inventoryLogs} />}
+            {activeTab === 'staff' && <StaffModule status={dataStatus} staffPerformance={staffPerformance} />}
+            {activeTab === 'costs' && <CostsModule status={dataStatus} wasteAlerts={wasteAlerts} costsData={costsData} />}
+            {activeTab === 'crm' && <CRMModule status={dataStatus} crmCustomers={crmCustomers} />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -225,7 +245,7 @@ export default function AdminView() {
 
 // --- BI MODULES ---
 
-function SalesModule({ status }: { status: DataStatus }) {
+function SalesModule({ status, salesTrends, menuEngineering }: { status: DataStatus; salesTrends: SalesTrend[]; menuEngineering: MenuEngineeringRow[] }) {
   const getCatVariant = (cat: string) => {
     if (cat === 'Estrella') return 'success';
     if (cat === 'Caballo de Batalla') return 'default';
@@ -375,7 +395,7 @@ function SalesModule({ status }: { status: DataStatus }) {
   );
 }
 
-function AuditModule({ status }: { status: DataStatus }) {
+function AuditModule({ status, transactions, inventoryLogs }: { status: DataStatus; transactions: TransactionRow[]; inventoryLogs: InventoryRow[] }) {
   const [tab, setTab] = useState<'tx'|'inv'>('tx');
   const [search, setSearch] = useState('');
 
@@ -474,7 +494,7 @@ function AuditModule({ status }: { status: DataStatus }) {
   );
 }
 
-function StaffModule({ status }: { status: DataStatus }) {
+function StaffModule({ status, staffPerformance }: { status: DataStatus; staffPerformance: StaffRow[] }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
@@ -559,7 +579,7 @@ function StaffModule({ status }: { status: DataStatus }) {
   );
 }
 
-function CostsModule({ status }: { status: DataStatus }) {
+function CostsModule({ status, wasteAlerts, costsData }: { status: DataStatus; wasteAlerts: WasteRow[]; costsData: CostsData }) {
   const pieData = [{ name: 'Fijos', value: costsData.fixed }, { name: 'Variables', value: costsData.variable }];
   const breakevenProgress = Math.min((costsData.sales / costsData.breakeven) * 100, 100);
 
@@ -634,7 +654,7 @@ function CostsModule({ status }: { status: DataStatus }) {
   );
 }
 
-function CRMModule({ status }: { status: DataStatus }) {
+function CRMModule({ status, crmCustomers }: { status: DataStatus; crmCustomers: CRMRow[] }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
@@ -687,7 +707,7 @@ function CRMModule({ status }: { status: DataStatus }) {
   );
 }
 
-function InventoryModule({ status }: { status: DataStatus }) {
+function InventoryModule({ status, rawMaterials }: { status: DataStatus; rawMaterials: RawMaterialRow[] }) {
   const [search, setSearch] = useState('');
   
   const filteredMaterials = rawMaterials.filter(m => 
