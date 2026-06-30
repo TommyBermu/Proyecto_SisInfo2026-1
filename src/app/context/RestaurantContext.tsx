@@ -67,13 +67,20 @@ interface RestaurantContextType {
   reservations: Reservation[];
 
   // Actions
-  toggleDishStatus: (id: string) => void;
+  toggleDishStatus: (id: string) => Promise<void>;
   updateTableStatus: (id: string, status: TableStatus) => void;
   createOrder: (tableId: string, items: OrderItem[], waiterName?: string) => void;
   updateOrder: (orderId: string, items: OrderItem[]) => void;
   addItemsToOrder: (orderId: string, newItems: OrderItem[]) => void;
   completeOrder: (orderId: string) => void;
-  markOrderAsViewed: (orderId: string) => void;
+  markOrderAsViewed: (orderId: string) => Promise<void>;
+  processPayment: (
+    orderId: string,
+    cashierId: string,
+    paymentMethod: 'cash' | 'card' | 'transfer',
+    tip?: number,
+    receivedAmount?: number
+  ) => Promise<void>;
   addReservation: (reservation: Reservation) => void;
 }
 
@@ -250,10 +257,8 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
             return acc + (detail ? Number(detail.precio_unitario) * item.quantity : 0);
           }, 0);
 
-          // Preserve viewedByWaiter from local state when available so waiter clicks persist across refetches
           const existing = orders.find((o) => o.id === pedido.id);
-          const viewedDefault = pedido.estado_preparacion === 'listo' ? false : true;
-          const viewedFlag = existing?.viewedByWaiter ?? viewedDefault;
+          const viewedFlag = existing?.viewedByWaiter ?? Boolean((pedido as any).viewed_by_waiter);
 
           ordersWithDetails.push({
             id: pedido.id,
@@ -385,18 +390,23 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const toggleDishStatus = (id: string) => {
+  const toggleDishStatus = async (id: string) => {
     const currentDish = dishes.find(dish => dish.id === id);
-    const nextStatus = currentDish?.status === 'active' ? 'inactive' : 'active';
+    if (!currentDish) return;
 
-    setDishes(prev => prev.map(d => d.id === id ? { ...d, status: nextStatus, stockLabel: nextStatus === 'inactive' ? 'Agotado' : 'Disponible' } : d));
-    supabase
+    const nextStatus: DishStatus = currentDish.status === 'active' ? 'inactive' : 'active';
+
+    const { error } = await supabase
       .from('plato')
       .update({ estado: nextStatus })
-      .eq('id', id)
-      .then(({ error }) => {
-        if (error) console.error('Error updating plato stock:', error);
-      });
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating plato stock:', error);
+      return;
+    }
+
+    setDishes(prev => prev.map(d => d.id === id ? { ...d, status: nextStatus, stockLabel: nextStatus === 'inactive' ? 'Agotado' : 'Disponible' } : d));
   };
 
   const updateTableStatus = (id: string, status: TableStatus) => {
@@ -446,6 +456,7 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
             mesa_id: mesaId,
             mesero_id: meseroId ?? null,
             estado_preparacion: 'pendiente',
+            viewed_by_waiter: false,
             hora_pedido: horaPedido,
             prioridad: 0,
           },
@@ -556,7 +567,7 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
     try {
       const { error } = await supabase
         .from('pedido')
-        .update({ estado_preparacion: 'listo' })
+        .update({ estado_preparacion: 'listo', viewed_by_waiter: false })
         .eq('id', orderId);
 
       if (error) throw error;
@@ -580,8 +591,153 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const markOrderAsViewed = (orderId: string) => {
+  const markOrderAsViewed = async (orderId: string) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, viewedByWaiter: true } : o));
+
+    const { error } = await supabase
+      .from('pedido')
+      .update({ viewed_by_waiter: true })
+      .eq('id', orderId);
+
+    if (error) {
+      console.error('Error updating pedido.viewed_by_waiter:', error);
+    }
+  };
+
+  const processPayment = async (
+    orderId: string,
+    cashierId: string,
+    paymentMethod: 'cash' | 'card' | 'transfer',
+    tip = 0,
+    receivedAmount?: number
+  ) => {
+    const order = orders.find(currentOrder => currentOrder.id === orderId);
+    if (!order) {
+      throw new Error('No se encontró la orden a procesar');
+    }
+
+    const now = new Date();
+    const orderTime = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt);
+    const horaCreacion = orderTime.toTimeString().slice(0, 8);
+    const horaPago = now.toTimeString().slice(0, 8);
+    const tiempoEsperaMinutos = Math.max(0, Math.round((now.getTime() - orderTime.getTime()) / 60000));
+    const total = Number((order.total + tip).toFixed(2));
+    const cambio = typeof receivedAmount === 'number' ? Number(Math.max(0, receivedAmount - total).toFixed(2)) : null;
+    const facturaId = crypto.randomUUID();
+
+    const rollbackIds: {
+      facturaId?: string;
+      ventaPlatoIds: string[];
+      ventaMetodoPagoId?: string;
+      ventaHorarioId?: string;
+    } = {
+      ventaPlatoIds: [],
+    };
+
+    try {
+      const { error: facturaError } = await supabase
+        .from('factura')
+        .insert([{
+          id: facturaId,
+          pedido_id: orderId,
+          cajero_id: cashierId,
+          metodo_pago: paymentMethod,
+          estado: 'pagada',
+          total,
+          propina: tip,
+          monto_recibido: receivedAmount ?? null,
+          cambio,
+        }]);
+
+      if (facturaError) throw facturaError;
+      rollbackIds.facturaId = facturaId;
+
+      const ventaPlatoRows = order.items.map((item) => {
+        const dish = dishes.find(currentDish => currentDish.id === item.dishId);
+        const precioUnitario = Number(dish?.price ?? 0);
+        return {
+          id: crypto.randomUUID(),
+          factura_id: facturaId,
+          plato_id: item.dishId,
+          cantidad: item.quantity,
+          precio_unitario: precioUnitario,
+          subtotal: Number((precioUnitario * item.quantity).toFixed(2)),
+        };
+      });
+
+      if (ventaPlatoRows.length > 0) {
+        const { error: ventaPlatoError } = await supabase
+          .from('venta_plato')
+          .insert(ventaPlatoRows);
+
+        if (ventaPlatoError) throw ventaPlatoError;
+        rollbackIds.ventaPlatoIds = ventaPlatoRows.map(row => row.id);
+      }
+
+      const ventaMetodoPagoId = crypto.randomUUID();
+      const { error: ventaMetodoPagoError } = await supabase
+        .from('venta_metodo_pago')
+        .insert([{
+          id: ventaMetodoPagoId,
+          factura_id: facturaId,
+          metodo_pago: paymentMethod,
+          monto: total,
+          propina: tip,
+          total,
+          cajero_id: cashierId,
+        }]);
+
+      if (ventaMetodoPagoError) throw ventaMetodoPagoError;
+      rollbackIds.ventaMetodoPagoId = ventaMetodoPagoId;
+
+      const ventaHorarioId = crypto.randomUUID();
+      const { error: ventaHorarioError } = await supabase
+        .from('venta_horario')
+        .insert([{
+          id: ventaHorarioId,
+          factura_id: facturaId,
+          hora_creacion: horaCreacion,
+          hora_pago: horaPago,
+          tiempo_espera_minutos: tiempoEsperaMinutos,
+          total,
+        }]);
+
+      if (ventaHorarioError) throw ventaHorarioError;
+      rollbackIds.ventaHorarioId = ventaHorarioId;
+
+      const { error: pedidoError } = await supabase
+        .from('pedido')
+        .update({ estado_preparacion: 'entregado' })
+        .eq('id', orderId);
+
+      if (pedidoError) throw pedidoError;
+
+      if (order.mesaId && order.mesaId !== 'takeaway') {
+        await updateTableStatus(order.mesaId, 'limpiando');
+      }
+
+      await fetchOrders();
+      await fetchTables();
+    } catch (error) {
+      if (rollbackIds.ventaHorarioId) {
+        await supabase.from('venta_horario').delete().eq('id', rollbackIds.ventaHorarioId);
+      }
+
+      if (rollbackIds.ventaMetodoPagoId) {
+        await supabase.from('venta_metodo_pago').delete().eq('id', rollbackIds.ventaMetodoPagoId);
+      }
+
+      if (rollbackIds.ventaPlatoIds.length > 0) {
+        await supabase.from('venta_plato').delete().in('id', rollbackIds.ventaPlatoIds);
+      }
+
+      if (rollbackIds.facturaId) {
+        await supabase.from('factura').delete().eq('id', rollbackIds.facturaId);
+      }
+
+      console.error('Error processing payment:', error);
+      throw error;
+    }
   };
 
   const addReservation = async (reservation: Reservation) => {
@@ -620,6 +776,7 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
       addItemsToOrder,
       completeOrder,
       markOrderAsViewed,
+      processPayment,
       addReservation
     }}>
       {children}
