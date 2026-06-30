@@ -1,197 +1,298 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  BarChart3, History, Users, DollarSign, HeartHandshake,
-  Download, Filter, Search, SearchX, Star, Banknote, ShieldAlert,
-  CalendarDays, TrendingUp, TrendingDown, LayoutDashboard, Utensils, Package
+import {
+  BarChart3, History, Users, DollarSign, CalendarDays,
+  Search, Star, Banknote, LayoutDashboard, Utensils,
+  Clock, TrendingDown, CheckCircle2, UserCheck, CalendarClock
 } from 'lucide-react';
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  LineChart, Line, PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis, Legend
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis, Legend
 } from 'recharts';
 import { supabase } from '../../lib/supabase';
 
-import { useRestaurant } from '../context/RestaurantContext';
 import { DataStateWrapper, StatCard, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/admin/AdminComponents';
 
 type DataStatus = 'loading' | 'error' | 'empty' | 'success';
 
-const heatmapDays = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
-const heatmapHours = ['12:00', '13:00', '14:00', '15:00', '19:00', '20:00', '21:00', '22:00'];
-type SalesTrend = { name: string; current: number; lastMonth: number; lastYear: number };
-type HeatmapPoint = { day: string; hour: string; value: number };
-type CostsData = { fixed: number; variable: number; foodCost: number; breakeven: number; sales: number };
-type MenuEngineeringRow = { id: string; name: string; margin: number; popularity: number; prepTime: number; category: string };
-type TransactionRow = { id: string; table: string; waiter: string; payment: string; time: string; amount: number; status: 'Pagado' | 'Reembolso' };
-type InventoryRow = { id: string; item: string; user: string; type: 'Entrada' | 'Salida'; reason: string; impact: number; date: string };
-type StaffRow = { id: string; name: string; sales: number; foodSales: number; drinkSales: number; turnaround: number; rating: number; shifts: number; overtime: number };
-type WasteRow = { item: string; cost: number; reason: string };
-type CRMRow = { id: string; name: string; visits: number; avgSpend: number; favorites: string; noShows: number; lastVisit: string };
-type RawMaterialRow = { id: string; name: string; unit: string; stock: number; minStock: number; category: string; supplier: string };
+type HourlyRevenue = { hour: string; ingreso: number };
+type PaymentSlice = { name: string; value: number };
+type MenuEngineeringRow = { id: string; name: string; margin: number | null; popularity: number; units: number; revenue: number; prepTime: number | null };
+type TransactionRow = { id: string; table: string; waiter: string; cashier: string; payment: string; time: string; amount: number; status: string };
+type StaffRow = { id: string; name: string; role: string; metricLabel: string; metricValue: number; metricIsMoney: boolean; rating: number | null; shifts: number; overtime: number };
+type CostsData = { foodCostPct: number | null; fixed: number; variable: number; cogs: number; sales: number; breakeven: number | null };
+type ReservationRow = { id: string; name: string; date: string; time: string; people: number; status: string; contact: string; notes: string };
 
 const COLORS = ['#ea580c', '#f97316', '#fb923c', '#fdba74', '#fed7aa'];
-const heatmapData: HeatmapPoint[] = [
-  { day: 'Lun', hour: '12:00', value: 12 },
-  { day: 'Lun', hour: '13:00', value: 24 },
-  { day: 'Lun', hour: '14:00', value: 18 },
-  { day: 'Mar', hour: '19:00', value: 42 },
-  { day: 'Mie', hour: '20:00', value: 58 },
-  { day: 'Jue', hour: '21:00', value: 73 },
-  { day: 'Vie', hour: '22:00', value: 81 },
-  { day: 'Sab', hour: '20:00', value: 88 },
-  { day: 'Dom', hour: '19:00', value: 65 },
-];
-const costsData: CostsData = {
-  fixed: 18500,
-  variable: 12400,
-  foodCost: 28.4,
-  breakeven: 41250,
-  sales: 32450,
-};
+const PAYMENT_LABELS: Record<string, string> = { cash: 'Efectivo', card: 'Tarjeta', transfer: 'Transferencia' };
+const paymentLabel = (m: string) => PAYMENT_LABELS[m] || m || 'Otro';
+const money = (n: number) => `$${n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function AdminView() {
-  const [activeTab, setActiveTab] = useState<'sales' | 'audit' | 'staff' | 'costs' | 'crm' | 'inventory'>('sales');
-  const [dataStatus, setDataStatus] = useState<DataStatus>('success');
-  const [salesTrends, setSalesTrends] = useState<SalesTrend[]>([]);
+  const [activeTab, setActiveTab] = useState<'sales' | 'audit' | 'staff' | 'costs' | 'reservas'>('sales');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const [hourlyRevenue, setHourlyRevenue] = useState<HourlyRevenue[]>([]);
+  const [paymentBreakdown, setPaymentBreakdown] = useState<PaymentSlice[]>([]);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalTips, setTotalTips] = useState(0);
+  const [avgTicket, setAvgTicket] = useState(0);
   const [menuEngineering, setMenuEngineering] = useState<MenuEngineeringRow[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
-  const [inventoryLogs, setInventoryLogs] = useState<InventoryRow[]>([]);
   const [staffPerformance, setStaffPerformance] = useState<StaffRow[]>([]);
-  const [wasteAlerts, setWasteAlerts] = useState<WasteRow[]>([]);
-  const [crmCustomers, setCrmCustomers] = useState<CRMRow[]>([]);
-  const [rawMaterials, setRawMaterials] = useState<RawMaterialRow[]>([]);
+  const [activeEmployees, setActiveEmployees] = useState(0);
+  const [avgRating, setAvgRating] = useState<number | null>(null);
+  const [avgTurnaround, setAvgTurnaround] = useState<number | null>(null);
+  const [costsData, setCostsData] = useState<CostsData>({ foodCostPct: null, fixed: 0, variable: 0, cogs: 0, sales: 0, breakeven: null });
+  const [reservations, setReservations] = useState<ReservationRow[]>([]);
 
   useEffect(() => {
     const loadAnalytics = async () => {
-      const [platosResult, ventasPlatoResult, ventaMetodoPagoResult, ventaHorarioResult, performanceResult, consumoResult, clientesResult, reservasResult, itemsResult, proveedoresResult] = await Promise.all([
-        supabase.from('plato').select('id, nombre, valor_actual, estado').order('nombre', { ascending: true }),
-        supabase.from('venta_plato').select('plato_id, cantidad, precio_unitario, subtotal'),
-        supabase.from('venta_metodo_pago').select('metodo_pago, monto, propina, total, cajero_id, factura_id'),
-        supabase.from('venta_horario').select('hora_creacion, hora_pago, tiempo_espera_minutos, total'),
-        supabase.from('performance_empleado').select('empleado_id, pedidos_completados, tiempo_promedio_minutos, calificacion_promedio'),
-        supabase.from('consumo_inventario').select('item_id, cantidad_consumida, costo_unitario, costo_total, tipo_consumo, razon, consumed_by'),
-        supabase.from('cliente').select('id, nombre, apellido, email, telefono'),
-        supabase.from('reserva').select('id, cliente_id, fecha, hora, num_personas, anotaciones, nombre, email, telefono'),
-        supabase.from('item').select('id, nombre, cantidad, cantidad_max, medicion, estado'),
-        supabase.from('proveedor').select('id, nombre, email, telefono'),
-      ]);
+      setLoading(true);
+      setError(false);
+      try {
+        const [
+          facturasRes, pedidosRes, mesasRes, empleadosRes, platosRes,
+          ventaPlatoRes, detalleRes, reservasRes, gastosRes, turnosRes, calificacionesRes,
+        ] = await Promise.all([
+          supabase.from('factura').select('id, total, propina, metodo_pago, estado, created_at, cajero_id, pedido_id'),
+          supabase.from('pedido').select('id, mesa_id, mesero_id, created_at'),
+          supabase.from('mesa').select('id, numero'),
+          supabase.from('empleado').select('id, nombre, apellido, rol, estado'),
+          supabase.from('plato').select('id, nombre, valor_actual, costo, tiempo_preparacion_min, estado'),
+          supabase.from('venta_plato').select('plato_id, cantidad, subtotal'),
+          supabase.from('detalle_pedido').select('chef_id, cantidad'),
+          supabase.from('reserva').select('id, fecha, hora, num_personas, estado, nombre, email, telefono, anotaciones'),
+          supabase.from('gasto_operativo').select('tipo, monto, concepto, fecha'),
+          supabase.from('empleado_turno').select('empleado_id, horas_extra'),
+          supabase.from('empleado_calificacion').select('empleado_id, calificacion'),
+        ]);
 
-      const sales = [
-        { name: 'Sem 1', current: 0, lastMonth: 0, lastYear: 0 },
-        { name: 'Sem 2', current: 0, lastMonth: 0, lastYear: 0 },
-        { name: 'Sem 3', current: 0, lastMonth: 0, lastYear: 0 },
-        { name: 'Sem 4', current: 0, lastMonth: 0, lastYear: 0 },
-      ];
+        const firstError = [facturasRes, pedidosRes, mesasRes, empleadosRes, platosRes, ventaPlatoRes, detalleRes, reservasRes, gastosRes, turnosRes, calificacionesRes].find(r => r.error);
+        if (firstError?.error) throw firstError.error;
 
-      const ventaTotales = (ventaHorarioResult.data || []).reduce((acc: number, row: any) => acc + Number(row.total || 0), 0);
-      sales[3].current = ventaTotales;
-      sales[2].lastMonth = ventaTotales * 0.78;
-      sales[1].lastYear = ventaTotales * 0.68;
-      sales[0].current = ventaTotales * 0.35;
-      setSalesTrends(sales);
+        const facturas = facturasRes.data || [];
+        const pedidos = pedidosRes.data || [];
+        const mesas = mesasRes.data || [];
+        const empleados = empleadosRes.data || [];
+        const platos = platosRes.data || [];
+        const ventaPlato = ventaPlatoRes.data || [];
+        const detalles = detalleRes.data || [];
+        const reservas = reservasRes.data || [];
+        const gastos = gastosRes.data || [];
+        const turnos = turnosRes.data || [];
+        const calificaciones = calificacionesRes.data || [];
 
-      const platos = platosResult.data || [];
-      const salesByPlato = new Map<string, number>();
-      (ventasPlatoResult.data || []).forEach((row: any) => {
-        salesByPlato.set(row.plato_id, (salesByPlato.get(row.plato_id) || 0) + Number(row.subtotal || 0));
-      });
+        const pedidoById = new Map(pedidos.map((p: any) => [p.id, p]));
+        const mesaById = new Map(mesas.map((m: any) => [m.id, m]));
+        const empleadoById = new Map(empleados.map((e: any) => [e.id, e]));
+        const fullName = (e: any) => e ? `${e.nombre || ''} ${e.apellido || ''}`.trim() || 'Empleado' : '—';
 
-      setMenuEngineering(platos.slice(0, 5).map((plato: any, index: number) => ({
-        id: plato.id,
-        name: plato.nombre,
-        margin: [60, 55, 65, 75, 20][index] ?? 50,
-        popularity: Math.min(100, Math.round((salesByPlato.get(plato.id) || 0) * 2)),
-        prepTime: [12, 10, 15, 5, 20][index] ?? 12,
-        category: ['Estrella', 'Caballo de Batalla', 'Rompecabezas', 'Estrella', 'Perro'][index] ?? 'Estrella',
-      })));
+        // --- VENTAS ---
+        const totalRev = facturas.reduce((acc: number, f: any) => acc + Number(f.total || 0), 0);
+        const totalTip = facturas.reduce((acc: number, f: any) => acc + Number(f.propina || 0), 0);
+        setTotalRevenue(totalRev);
+        setTotalTips(totalTip);
+        setAvgTicket(facturas.length ? totalRev / facturas.length : 0);
 
-      setTransactions((ventaMetodoPagoResult.data || []).map((row: any, index: number) => ({
-        id: `TX-${String(index + 101)}`,
-        table: ['Mesa 4', 'Mesa 2', 'Mesa 8', 'Llevar', 'Mesa 5'][index] || 'Mesa 1',
-        waiter: ['Carlos M.', 'Ana S.', 'Carlos M.', 'Luis G.', 'Ana S.'][index] || 'Mesero',
-        payment: row.metodo_pago,
-        time: ['14:30', '14:45', '15:10', '15:25', '16:00'][index] || '00:00',
-        amount: Number(row.total || row.monto || 0),
-        status: index === 3 ? 'Reembolso' : 'Pagado',
-      })));
+        const byHour = new Map<number, number>();
+        facturas.forEach((f: any) => {
+          if (!f.created_at) return;
+          const h = new Date(f.created_at).getHours();
+          byHour.set(h, (byHour.get(h) || 0) + Number(f.total || 0));
+        });
+        setHourlyRevenue(
+          Array.from(byHour.keys()).sort((a, b) => a - b).map(h => ({
+            hour: `${String(h).padStart(2, '0')}:00`,
+            ingreso: Math.round(byHour.get(h) || 0),
+          }))
+        );
 
-      setInventoryLogs((consumoResult.data || []).map((row: any, index: number) => ({
-        id: String(index + 1),
-        item: ['Lomo Fino', 'Limones', 'Pisco'][index] || row.item_id,
-        user: ['Chef Mario', 'Admin', 'Bartender'][index] || 'Sistema',
-        type: row.tipo_consumo === 'Entrada' ? 'Entrada' : 'Salida',
-        reason: row.razon || 'Movimiento',
-        impact: Number(row.costo_total || 0) * (row.tipo_consumo === 'Entrada' ? -1 : 1),
-        date: ['2026-04-16', '2026-04-16', '2026-04-15'][index] || new Date().toISOString().split('T')[0],
-      })));
+        const byPayment = new Map<string, number>();
+        facturas.forEach((f: any) => {
+          byPayment.set(f.metodo_pago, (byPayment.get(f.metodo_pago) || 0) + Number(f.total || 0));
+        });
+        setPaymentBreakdown(Array.from(byPayment.entries()).map(([k, v]) => ({ name: paymentLabel(k), value: Math.round(v) })));
 
-      setStaffPerformance((performanceResult.data || []).map((row: any, index: number) => ({
-        id: row.empleado_id,
-        name: ['Carlos M.', 'Ana S.', 'Luis G.'][index] || row.empleado_id,
-        sales: [4500, 5200, 3800][index] || Number(row.pedidos_completados || 0) * 200,
-        foodSales: [3000, 3800, 2500][index] || 0,
-        drinkSales: [1500, 1400, 1300][index] || 0,
-        turnaround: Number(row.tiempo_promedio_minutos || 0),
-        rating: Number(row.calificacion_promedio || 0),
-        shifts: [20, 22, 18][index] || 0,
-        overtime: [4, 2, 0][index] || 0,
-      })));
+        // --- INGENIERÍA DE MENÚ ---
+        const unitsByPlato = new Map<string, number>();
+        const revenueByPlato = new Map<string, number>();
+        ventaPlato.forEach((vp: any) => {
+          unitsByPlato.set(vp.plato_id, (unitsByPlato.get(vp.plato_id) || 0) + Number(vp.cantidad || 0));
+          revenueByPlato.set(vp.plato_id, (revenueByPlato.get(vp.plato_id) || 0) + Number(vp.subtotal || 0));
+        });
+        const maxUnits = Math.max(1, ...Array.from(unitsByPlato.values()));
+        setMenuEngineering(
+          platos
+            .map((p: any) => {
+              const precio = Number(p.valor_actual || 0);
+              const costo = p.costo === null || p.costo === undefined ? null : Number(p.costo);
+              const units = unitsByPlato.get(p.id) || 0;
+              return {
+                id: p.id,
+                name: p.nombre,
+                margin: costo !== null && precio > 0 ? Math.round(((precio - costo) / precio) * 100) : null,
+                popularity: Math.round((units / maxUnits) * 100),
+                units,
+                revenue: Math.round(revenueByPlato.get(p.id) || 0),
+                prepTime: p.tiempo_preparacion_min ?? null,
+              };
+            })
+            .sort((a, b) => b.revenue - a.revenue)
+        );
 
-      setWasteAlerts((consumoResult.data || []).slice(0, 3).map((row: any, index: number) => ({
-        item: ['Tomates', 'Lomo Fino', 'Limón'][index] || row.item_id,
-        cost: [25, 120, 40][index] || Math.abs(Number(row.costo_total || 0)),
-        reason: ['Mal estado', 'Vencimiento', 'Exceso de stock'][index] || row.razon || 'Merma',
-      })));
+        // --- AUDITORÍA (transacciones) ---
+        setTransactions(
+          facturas
+            .slice()
+            .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+            .map((f: any) => {
+              const pedido = pedidoById.get(f.pedido_id);
+              const mesa = pedido ? mesaById.get(pedido.mesa_id) : null;
+              const mesero = pedido ? empleadoById.get(pedido.mesero_id) : null;
+              return {
+                id: f.id.slice(0, 8).toUpperCase(),
+                table: mesa ? `Mesa ${mesa.numero}` : 'Llevar',
+                waiter: fullName(mesero),
+                cashier: fullName(empleadoById.get(f.cajero_id)),
+                payment: paymentLabel(f.metodo_pago),
+                time: f.created_at ? new Date(f.created_at).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—',
+                amount: Number(f.total || 0),
+                status: f.estado || 'pendiente',
+              };
+            })
+        );
 
-      const clienteById = new Map((clientesResult.data || []).map((cliente: any) => [cliente.id, `${cliente.nombre} ${cliente.apellido}`.trim()]));
-      setCrmCustomers((reservasResult.data || []).map((reserva: any, index: number) => ({
-        id: reserva.id,
-        name: clienteById.get(reserva.cliente_id) || reserva.nombre || 'Cliente',
-        visits: [15, 8, 24][index] || 1,
-        avgSpend: [150, 85, 450][index] || 0,
-        favorites: ['Lomo Saltado', 'Ceviche', 'Pisco Sour'][index] || 'N/A',
-        noShows: [1, 0, 2][index] || 0,
-        lastVisit: String(reserva.fecha),
-      })));
+        // --- STAFF ---
+        setActiveEmployees(empleados.filter((e: any) => e.estado !== false).length);
 
-      setRawMaterials((itemsResult.data || []).map((item: any, index: number) => ({
-        id: item.id,
-        name: item.nombre,
-        unit: item.medicion || 'u',
-        stock: Number(item.cantidad || 0),
-        minStock: [10, 10, 15, 20, 5, 30, 5, 15][index] || 0,
-        category: ['Carnes', 'Pescados', 'Vegetales', 'Vegetales', 'Vegetales', 'Vegetales', 'Bebidas', 'Aves'][index] || 'General',
-        supplier: ['Carnicería Central', 'Terminal Pesquero', 'Mercado Sur', 'Mercado Sur', 'Mercado Sur', 'Mercado Mayorista', 'Licorería San Juan', 'Avícola Santa Rosa'][index] || 'Proveedor',
-      })));
+        const salesByMesero = new Map<string, number>();
+        const collectedByCajero = new Map<string, number>();
+        facturas.forEach((f: any) => {
+          const pedido = pedidoById.get(f.pedido_id);
+          if (pedido?.mesero_id) salesByMesero.set(pedido.mesero_id, (salesByMesero.get(pedido.mesero_id) || 0) + Number(f.total || 0));
+          if (f.cajero_id) collectedByCajero.set(f.cajero_id, (collectedByCajero.get(f.cajero_id) || 0) + Number(f.total || 0));
+        });
+        const dishesByChef = new Map<string, number>();
+        detalles.forEach((d: any) => {
+          if (d.chef_id) dishesByChef.set(d.chef_id, (dishesByChef.get(d.chef_id) || 0) + Number(d.cantidad || 0));
+        });
+
+        const ratingAgg = new Map<string, { sum: number; n: number }>();
+        calificaciones.forEach((c: any) => {
+          const cur = ratingAgg.get(c.empleado_id) || { sum: 0, n: 0 };
+          cur.sum += Number(c.calificacion || 0); cur.n += 1;
+          ratingAgg.set(c.empleado_id, cur);
+        });
+        const shiftsByEmp = new Map<string, number>();
+        const overtimeByEmp = new Map<string, number>();
+        turnos.forEach((t: any) => {
+          shiftsByEmp.set(t.empleado_id, (shiftsByEmp.get(t.empleado_id) || 0) + 1);
+          overtimeByEmp.set(t.empleado_id, (overtimeByEmp.get(t.empleado_id) || 0) + Number(t.horas_extra || 0));
+        });
+
+        setStaffPerformance(
+          empleados.map((e: any) => {
+            const rating = ratingAgg.get(e.id);
+            let metricLabel = 'Pedidos', metricValue = 0, metricIsMoney = false;
+            if (e.rol === 'mesero') { metricLabel = 'Ventas'; metricValue = salesByMesero.get(e.id) || 0; metricIsMoney = true; }
+            else if (e.rol === 'cajero') { metricLabel = 'Cobrado'; metricValue = collectedByCajero.get(e.id) || 0; metricIsMoney = true; }
+            else if (e.rol === 'chef') { metricLabel = 'Platos preparados'; metricValue = dishesByChef.get(e.id) || 0; }
+            return {
+              id: e.id,
+              name: fullName(e),
+              role: e.rol,
+              metricLabel, metricValue, metricIsMoney,
+              rating: rating ? rating.sum / rating.n : null,
+              shifts: shiftsByEmp.get(e.id) || 0,
+              overtime: overtimeByEmp.get(e.id) || 0,
+            };
+          })
+        );
+
+        const allRatings = calificaciones.map((c: any) => Number(c.calificacion || 0));
+        setAvgRating(allRatings.length ? allRatings.reduce((a, b) => a + b, 0) / allRatings.length : null);
+
+        // rotación de mesa: tiempo entre creación del pedido y pago de la factura
+        const turnarounds: number[] = [];
+        facturas.forEach((f: any) => {
+          const pedido = pedidoById.get(f.pedido_id);
+          if (pedido?.created_at && f.created_at) {
+            const mins = (new Date(f.created_at).getTime() - new Date(pedido.created_at).getTime()) / 60000;
+            if (mins >= 0 && mins < 600) turnarounds.push(mins);
+          }
+        });
+        setAvgTurnaround(turnarounds.length ? turnarounds.reduce((a, b) => a + b, 0) / turnarounds.length : null);
+
+        // --- COSTOS ---
+        const costoById = new Map(platos.map((p: any) => [p.id, p.costo === null || p.costo === undefined ? null : Number(p.costo)]));
+        let cogs = 0; let haveCost = false;
+        ventaPlato.forEach((vp: any) => {
+          const costo = costoById.get(vp.plato_id);
+          if (costo !== null && costo !== undefined) { cogs += costo * Number(vp.cantidad || 0); haveCost = true; }
+        });
+        const fixed = gastos.filter((g: any) => g.tipo === 'fijo').reduce((a: number, g: any) => a + Number(g.monto || 0), 0);
+        const variable = gastos.filter((g: any) => g.tipo === 'variable').reduce((a: number, g: any) => a + Number(g.monto || 0), 0);
+        const foodCostPct = haveCost && totalRev > 0 ? (cogs / totalRev) * 100 : null;
+        let breakeven: number | null = null;
+        if (fixed > 0 && totalRev > 0) {
+          const contributionRatio = 1 - (variable + cogs) / totalRev;
+          breakeven = contributionRatio > 0 ? fixed / contributionRatio : null;
+        }
+        setCostsData({ foodCostPct, fixed, variable, cogs, sales: totalRev, breakeven });
+
+        // --- RESERVAS ---
+        setReservations(
+          reservas
+            .slice()
+            .sort((a: any, b: any) => new Date(`${a.fecha}T${a.hora || '00:00'}`).getTime() - new Date(`${b.fecha}T${b.hora || '00:00'}`).getTime())
+            .map((r: any) => ({
+              id: r.id,
+              name: r.nombre || 'Sin nombre',
+              date: r.fecha,
+              time: r.hora ? String(r.hora).slice(0, 5) : '—',
+              people: Number(r.num_personas || 0),
+              status: r.estado || 'confirmada',
+              contact: r.telefono || r.email || '—',
+              notes: r.anotaciones || '',
+            }))
+        );
+      } catch (err) {
+        console.error('Error loading admin analytics:', err);
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
     };
 
     void loadAnalytics();
   }, []);
 
+  const statusFor = (hasData: boolean): DataStatus => (loading ? 'loading' : error ? 'error' : hasData ? 'success' : 'empty');
+
   const tabs = [
     { id: 'sales', label: 'Inteligencia de Ventas', icon: <BarChart3 size={20} /> },
-    { id: 'inventory', label: 'Gestión de Inventario', icon: <Package size={20} /> },
     { id: 'audit', label: 'Historial y Auditoría', icon: <History size={20} /> },
     { id: 'staff', label: 'Rendimiento (KPIs)', icon: <Users size={20} /> },
     { id: 'costs', label: 'Costos y Rentabilidad', icon: <DollarSign size={20} /> },
-    { id: 'crm', label: 'Reservas y CRM', icon: <HeartHandshake size={20} /> },
+    { id: 'reservas', label: 'Reservas', icon: <CalendarDays size={20} /> },
   ] as const;
 
   return (
     <div className="flex h-[calc(100vh-64px)] bg-neutral-100 overflow-hidden">
-      {/* Sidebar */}
       <aside className="w-64 bg-neutral-900 text-white flex flex-col flex-shrink-0">
         <div className="p-6 border-b border-neutral-800">
           <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            <LayoutDashboard size={22} className="text-orange-500"/> BI & Analytics
+            <LayoutDashboard size={22} className="text-orange-500" /> BI & Analytics
           </h2>
           <p className="text-xs text-neutral-500 mt-1">Decisiones Estratégicas</p>
         </div>
-        
+
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {tabs.map(tab => (
-            <button 
+            <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={clsx(
@@ -204,38 +305,22 @@ export default function AdminView() {
             </button>
           ))}
         </nav>
-
-        <div className="p-4 border-t border-neutral-800">
-           <div className="text-xs text-neutral-500 mb-2">Simulador de Estado:</div>
-           <select 
-             className="w-full bg-neutral-800 border-neutral-700 text-sm rounded-lg p-2 text-white outline-none focus:ring-1 focus:ring-orange-500"
-             value={dataStatus}
-             onChange={e => setDataStatus(e.target.value as DataStatus)}
-           >
-             <option value="success">Normal (Éxito)</option>
-             <option value="loading">Cargando...</option>
-             <option value="error">Error de Red</option>
-             <option value="empty">Sin Datos</option>
-           </select>
-        </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
-          <motion.div 
+          <motion.div
             key={activeTab}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             className="p-8 h-full"
           >
-            {activeTab === 'sales' && <SalesModule status={dataStatus} salesTrends={salesTrends} menuEngineering={menuEngineering} />}
-            {activeTab === 'inventory' && <InventoryModule status={dataStatus} rawMaterials={rawMaterials} />}
-            {activeTab === 'audit' && <AuditModule status={dataStatus} transactions={transactions} inventoryLogs={inventoryLogs} />}
-            {activeTab === 'staff' && <StaffModule status={dataStatus} staffPerformance={staffPerformance} />}
-            {activeTab === 'costs' && <CostsModule status={dataStatus} wasteAlerts={wasteAlerts} costsData={costsData} />}
-            {activeTab === 'crm' && <CRMModule status={dataStatus} crmCustomers={crmCustomers} />}
+            {activeTab === 'sales' && <SalesModule statusFor={statusFor} totalRevenue={totalRevenue} totalTips={totalTips} avgTicket={avgTicket} hourlyRevenue={hourlyRevenue} paymentBreakdown={paymentBreakdown} menuEngineering={menuEngineering} />}
+            {activeTab === 'audit' && <AuditModule statusFor={statusFor} transactions={transactions} />}
+            {activeTab === 'staff' && <StaffModule statusFor={statusFor} staffPerformance={staffPerformance} activeEmployees={activeEmployees} avgRating={avgRating} avgTurnaround={avgTurnaround} />}
+            {activeTab === 'costs' && <CostsModule statusFor={statusFor} costsData={costsData} />}
+            {activeTab === 'reservas' && <ReservasModule statusFor={statusFor} reservations={reservations} />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -243,60 +328,46 @@ export default function AdminView() {
   );
 }
 
-// --- BI MODULES ---
-
-function SalesModule({ status, salesTrends, menuEngineering }: { status: DataStatus; salesTrends: SalesTrend[]; menuEngineering: MenuEngineeringRow[] }) {
-  const getCatVariant = (cat: string) => {
-    if (cat === 'Estrella') return 'success';
-    if (cat === 'Caballo de Batalla') return 'default';
-    if (cat === 'Rompecabezas') return 'warning';
-    return 'destructive';
-  };
-
-  const getHeatmapColor = (val: number) => {
-    if (val === 0) return 'bg-neutral-100';
-    if (val < 25) return 'bg-orange-200';
-    if (val < 50) return 'bg-orange-400';
-    if (val < 75) return 'bg-orange-600';
-    return 'bg-orange-800';
-  };
+// --- VENTAS ---
+function SalesModule({ statusFor, totalRevenue, totalTips, avgTicket, hourlyRevenue, paymentBreakdown, menuEngineering }: {
+  statusFor: (b: boolean) => DataStatus;
+  totalRevenue: number; totalTips: number; avgTicket: number;
+  hourlyRevenue: HourlyRevenue[]; paymentBreakdown: PaymentSlice[]; menuEngineering: MenuEngineeringRow[];
+}) {
+  const scatterData = menuEngineering.filter(m => m.margin !== null);
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Inteligencia de Ventas</h1>
-          <p className="text-sm text-neutral-500">Métricas clave, comportamiento del cliente y rentabilidad de menú.</p>
+          <p className="text-sm text-neutral-500">Métricas reales de facturación, métodos de pago y rendimiento de menú.</p>
         </div>
-        <button className="bg-white border border-neutral-200 text-neutral-700 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-neutral-50"><Download size={16} /> Exportar CSV</button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Ingresos Totales (Mes)" value="$32,450.00" trend={12.5} icon={<DollarSign className="text-orange-500"/>} subtitle="vs. mes anterior" />
-        <StatCard title="Índice de Popularidad Promedio" value="84%" trend={3.2} icon={<Utensils className="text-orange-500"/>} subtitle="vs. mes anterior" />
-        <StatCard title="Tiempo Prom. Preparación" value="12.5 min" trend={-1.5} icon={<TrendingDown className="text-green-500"/>} subtitle="Mejora en cocina" />
+        <StatCard title="Ingresos Totales" value={money(totalRevenue)} icon={<DollarSign className="text-orange-500" />} subtitle="Suma de facturas registradas" />
+        <StatCard title="Ticket Promedio" value={money(avgTicket)} icon={<Utensils className="text-orange-500" />} subtitle="Por factura" />
+        <StatCard title="Propinas Totales" value={money(totalTips)} icon={<Banknote className="text-green-500" />} subtitle="Acumulado" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Comparativa de Ventas</CardTitle>
-            <CardDescription>Ventas del mes actual vs. anterior vs. año pasado.</CardDescription>
+            <CardTitle>Ingresos por Hora</CardTitle>
+            <CardDescription>Distribución de la facturación a lo largo del día.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataStateWrapper status={status}>
+            <DataStateWrapper status={statusFor(hourlyRevenue.length > 0)}>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={salesTrends} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <BarChart data={hourlyRevenue} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                     <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                    <XAxis key="xaxis" dataKey="name" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis key="yaxis" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val/1000}k`} />
-                    <Tooltip key="tooltip" contentStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                    <Legend key="legend" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                    <Line key="line-curr" type="monotone" name="Mes Actual" dataKey="current" stroke="#ea580c" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                    <Line key="line-prev" type="monotone" name="Mes Anterior" dataKey="lastMonth" stroke="#9CA3AF" strokeWidth={2} strokeDasharray="5 5" />
-                    <Line key="line-year" type="monotone" name="Año Pasado" dataKey="lastYear" stroke="#D1D5DB" strokeWidth={2} strokeDasharray="3 3" />
-                  </LineChart>
+                    <XAxis key="xaxis" dataKey="hour" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis key="yaxis" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val / 1000}k`} />
+                    <Tooltip key="tooltip" formatter={(val: number) => [money(val), 'Ingresos']} contentStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB' }} />
+                    <Bar key="bar" dataKey="ingreso" fill="#ea580c" radius={[4, 4, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </DataStateWrapper>
@@ -305,29 +376,21 @@ function SalesModule({ status, salesTrends, menuEngineering }: { status: DataSta
 
         <Card>
           <CardHeader>
-            <CardTitle>Mapa de Calor: Afluencia</CardTitle>
-            <CardDescription>Picos de demanda identificados por día y hora.</CardDescription>
+            <CardTitle>Métodos de Pago</CardTitle>
+            <CardDescription>Ingresos según forma de pago.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataStateWrapper status={status}>
-              <div className="flex flex-col h-[300px]">
-                <div className="flex mb-2">
-                  <div className="w-12"></div>
-                  {heatmapHours.map(hour => <div key={hour} className="flex-1 text-center text-xs text-neutral-400 font-medium">{hour}</div>)}
-                </div>
-                {heatmapDays.map(day => (
-                  <div key={day} className="flex mb-1 items-center">
-                    <div className="w-12 text-xs text-neutral-500 font-medium pr-2 text-right">{day}</div>
-                    {heatmapHours.map(hour => {
-                      const val = heatmapData.find(d => d.day === day && d.hour === hour)?.value || 0;
-                      return (
-                        <div key={`${day}-${hour}`} className="flex-1 px-0.5">
-                          <div className={`h-8 w-full rounded-sm ${getHeatmapColor(val)}`} title={`${day} ${hour}: ${val} clientes`} />
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
+            <DataStateWrapper status={statusFor(paymentBreakdown.length > 0)}>
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={paymentBreakdown} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value" nameKey="name">
+                      {paymentBreakdown.map((entry, i) => <Cell key={`cell-${entry.name}`} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(val: number) => [money(val), 'Ingresos']} />
+                    <Legend verticalAlign="bottom" height={36} />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
             </DataStateWrapper>
           </CardContent>
@@ -338,17 +401,18 @@ function SalesModule({ status, salesTrends, menuEngineering }: { status: DataSta
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Ingeniería de Menú</CardTitle>
-            <CardDescription>Clasificación de rentabilidad y popularidad de los platos.</CardDescription>
+            <CardDescription>Unidades vendidas, ingresos y popularidad reales. Margen y tiempo se calculan al cargar costo / tiempo en cada plato.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <DataStateWrapper status={status}>
+            <DataStateWrapper status={statusFor(menuEngineering.length > 0)}>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Plato</TableHead>
-                    <TableHead>Categoría</TableHead>
-                    <TableHead className="text-right">Rentabilidad</TableHead>
+                    <TableHead className="text-right">Unidades</TableHead>
+                    <TableHead className="text-right">Ingresos</TableHead>
                     <TableHead className="text-right">Popularidad</TableHead>
+                    <TableHead className="text-right">Margen</TableHead>
                     <TableHead className="text-right">T. Cocina</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -356,10 +420,11 @@ function SalesModule({ status, salesTrends, menuEngineering }: { status: DataSta
                   {menuEngineering.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="font-bold text-neutral-900">{item.name}</TableCell>
-                      <TableCell><Badge variant={getCatVariant(item.category)}>{item.category}</Badge></TableCell>
-                      <TableCell className="text-right font-medium">{item.margin}%</TableCell>
+                      <TableCell className="text-right">{item.units}</TableCell>
+                      <TableCell className="text-right font-medium">{money(item.revenue)}</TableCell>
                       <TableCell className="text-right">{item.popularity}/100</TableCell>
-                      <TableCell className="text-right text-neutral-500">{item.prepTime} min</TableCell>
+                      <TableCell className="text-right">{item.margin !== null ? `${item.margin}%` : <span className="text-neutral-400">—</span>}</TableCell>
+                      <TableCell className="text-right text-neutral-500">{item.prepTime !== null ? `${item.prepTime} min` : <span className="text-neutral-400">—</span>}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -371,19 +436,19 @@ function SalesModule({ status, salesTrends, menuEngineering }: { status: DataSta
         <Card>
           <CardHeader>
             <CardTitle>Margen vs Popularidad</CardTitle>
-            <CardDescription>Distribución de platos.</CardDescription>
+            <CardDescription>Solo platos con costo cargado.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataStateWrapper status={status}>
+            <DataStateWrapper status={statusFor(scatterData.length > 0)} emptyMessage="Carga el costo de los platos para ver esta gráfica.">
               <div className="h-[250px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart margin={{ top: 20, right: 20, bottom: 10, left: 0 }}>
                     <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                     <XAxis key="xaxis" type="number" dataKey="popularity" name="Popularidad" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                     <YAxis key="yaxis" type="number" dataKey="margin" name="Margen" unit="%" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <ZAxis key="zaxis" type="number" dataKey="prepTime" range={[60, 200]} />
+                    <ZAxis key="zaxis" type="number" dataKey="units" range={[60, 200]} />
                     <Tooltip key="tooltip" cursor={{ strokeDasharray: '3 3' }} formatter={(value: number, name: string) => [name === 'Margen' ? `${value}%` : value, name]} />
-                    <Scatter key="scatter" name="Platos" data={menuEngineering} fill="#ea580c" />
+                    <Scatter key="scatter" name="Platos" data={scatterData} fill="#ea580c" />
                   </ScatterChart>
                 </ResponsiveContainer>
               </div>
@@ -395,97 +460,64 @@ function SalesModule({ status, salesTrends, menuEngineering }: { status: DataSta
   );
 }
 
-function AuditModule({ status, transactions, inventoryLogs }: { status: DataStatus; transactions: TransactionRow[]; inventoryLogs: InventoryRow[] }) {
-  const [tab, setTab] = useState<'tx'|'inv'>('tx');
+// --- AUDITORÍA ---
+function AuditModule({ statusFor, transactions }: { statusFor: (b: boolean) => DataStatus; transactions: TransactionRow[] }) {
   const [search, setSearch] = useState('');
-
-  const filteredTx = transactions.filter(t => t.waiter.toLowerCase().includes(search.toLowerCase()) || t.table.toLowerCase().includes(search.toLowerCase()));
+  const filtered = transactions.filter(t =>
+    t.waiter.toLowerCase().includes(search.toLowerCase()) ||
+    t.cashier.toLowerCase().includes(search.toLowerCase()) ||
+    t.table.toLowerCase().includes(search.toLowerCase()) ||
+    t.id.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Historial y Auditoría</h1>
-          <p className="text-sm text-neutral-500">Trazabilidad total de transacciones e inventario.</p>
+          <p className="text-sm text-neutral-500">Trazabilidad de todas las transacciones facturadas.</p>
         </div>
-        <div className="flex gap-2">
-          <button className="bg-white border border-neutral-200 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"><Filter size={16} /> Filtros Avanzados</button>
-        </div>
-      </div>
-
-      <div className="flex space-x-1 rounded-xl bg-neutral-200/50 p-1 w-max">
-        <button onClick={() => setTab('tx')} className={clsx("rounded-lg px-4 py-2 text-sm font-medium transition-all", tab === 'tx' ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-500 hover:text-neutral-900")}>Transacciones</button>
-        <button onClick={() => setTab('inv')} className={clsx("rounded-lg px-4 py-2 text-sm font-medium transition-all", tab === 'inv' ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-500 hover:text-neutral-900")}>Log de Inventario</button>
       </div>
 
       <Card>
         <CardHeader className="pb-4">
-          <CardTitle>{tab === 'tx' ? 'Registro de Transacciones' : 'Historial de Movimientos'}</CardTitle>
+          <CardTitle>Registro de Transacciones</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="p-4 border-b border-neutral-100 flex items-center gap-4 bg-neutral-50/50">
             <div className="relative max-w-md w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={16} />
-              <input type="text" placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"/>
+              <input type="text" placeholder="Buscar por mesa, mesero, cajero o factura..." value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
             </div>
           </div>
-          <DataStateWrapper status={status}>
+          <DataStateWrapper status={statusFor(transactions.length > 0)}>
             <Table>
-              {tab === 'tx' ? (
-                <>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID Factura</TableHead>
-                      <TableHead>Mesa</TableHead>
-                      <TableHead>Mesero</TableHead>
-                      <TableHead>Método</TableHead>
-                      <TableHead>Hora</TableHead>
-                      <TableHead className="text-right">Monto</TableHead>
-                      <TableHead>Estado</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredTx.map(t => (
-                      <TableRow key={t.id}>
-                        <TableCell className="font-bold text-neutral-900">{t.id}</TableCell>
-                        <TableCell>{t.table}</TableCell>
-                        <TableCell>{t.waiter}</TableCell>
-                        <TableCell>{t.payment}</TableCell>
-                        <TableCell className="text-neutral-500">{t.time}</TableCell>
-                        <TableCell className="text-right font-medium">${t.amount.toFixed(2)}</TableCell>
-                        <TableCell><Badge variant={t.status === 'Pagado' ? 'success' : 'destructive'}>{t.status}</Badge></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </>
-              ) : (
-                <>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead>Insumo</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Motivo</TableHead>
-                      <TableHead>Responsable</TableHead>
-                      <TableHead className="text-right">Impacto Fin.</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {inventoryLogs.map(l => (
-                      <TableRow key={l.id}>
-                        <TableCell className="text-neutral-500">{l.date}</TableCell>
-                        <TableCell className="font-bold text-neutral-900">{l.item}</TableCell>
-                        <TableCell><Badge variant={l.type === 'Entrada' ? 'success' : 'destructive'}>{l.type}</Badge></TableCell>
-                        <TableCell>{l.reason}</TableCell>
-                        <TableCell>{l.user}</TableCell>
-                        <TableCell className={`text-right font-bold ${l.impact < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                          {l.impact < 0 ? '-' : '+'}${Math.abs(l.impact).toFixed(2)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </>
-              )}
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID Factura</TableHead>
+                  <TableHead>Mesa</TableHead>
+                  <TableHead>Mesero</TableHead>
+                  <TableHead>Cajero</TableHead>
+                  <TableHead>Método</TableHead>
+                  <TableHead>Fecha / Hora</TableHead>
+                  <TableHead className="text-right">Monto</TableHead>
+                  <TableHead>Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map(t => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-bold text-neutral-900">{t.id}</TableCell>
+                    <TableCell>{t.table}</TableCell>
+                    <TableCell>{t.waiter}</TableCell>
+                    <TableCell>{t.cashier}</TableCell>
+                    <TableCell>{t.payment}</TableCell>
+                    <TableCell className="text-neutral-500">{t.time}</TableCell>
+                    <TableCell className="text-right font-medium">{money(t.amount)}</TableCell>
+                    <TableCell><Badge variant={t.status === 'pagada' ? 'success' : t.status === 'cancelada' ? 'destructive' : 'warning'}>{t.status}</Badge></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
             </Table>
           </DataStateWrapper>
         </CardContent>
@@ -494,40 +526,44 @@ function AuditModule({ status, transactions, inventoryLogs }: { status: DataStat
   );
 }
 
-function StaffModule({ status, staffPerformance }: { status: DataStatus; staffPerformance: StaffRow[] }) {
+// --- STAFF ---
+function StaffModule({ statusFor, staffPerformance, activeEmployees, avgRating, avgTurnaround }: {
+  statusFor: (b: boolean) => DataStatus;
+  staffPerformance: StaffRow[]; activeEmployees: number; avgRating: number | null; avgTurnaround: number | null;
+}) {
+  const salesChart = staffPerformance.filter(s => s.metricIsMoney && s.metricValue > 0).map(s => ({ name: s.name, ventas: Math.round(s.metricValue) }));
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Rendimiento del Personal</h1>
-          <p className="text-sm text-neutral-500">Productividad, ventas y control de asistencia.</p>
+          <p className="text-sm text-neutral-500">Productividad real por rol. Calificaciones y turnos se calculan al cargar esos datos.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Empleados Activos" value="24" icon={<Users className="text-orange-500"/>} />
-        <StatCard title="Calificación Promedio" value="4.6 / 5" trend={2.1} icon={<Star className="text-yellow-500 fill-yellow-500"/>} />
-        <StatCard title="Rotación de Mesa (Prom)" value="45 min" trend={-5.2} icon={<CalendarDays className="text-blue-500"/>} />
+        <StatCard title="Empleados Activos" value={activeEmployees} icon={<Users className="text-orange-500" />} />
+        <StatCard title="Calificación Promedio" value={avgRating !== null ? `${avgRating.toFixed(1)} / 5` : '—'} icon={<Star className="text-yellow-500 fill-yellow-500" />} subtitle={avgRating === null ? 'Sin calificaciones aún' : undefined} />
+        <StatCard title="Rotación de Mesa (Prom)" value={avgTurnaround !== null ? `${Math.round(avgTurnaround)} min` : '—'} icon={<Clock className="text-blue-500" />} subtitle="Del pedido al pago" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Ventas Totales por Mesero</CardTitle>
-            <CardDescription>Productividad generada este mes.</CardDescription>
+            <CardTitle>Ventas por Empleado</CardTitle>
+            <CardDescription>Facturación generada (meseros y cajeros).</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataStateWrapper status={status}>
+            <DataStateWrapper status={statusFor(salesChart.length > 0)}>
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={staffPerformance} layout="vertical" margin={{ left: 20 }}>
-                    <CartesianGrid key="grid" strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#E5E7EB" />
+                  <BarChart data={salesChart} layout="vertical" margin={{ left: 20 }}>
+                    <CartesianGrid key="grid" strokeDasharray="3 3" horizontal vertical={false} stroke="#E5E7EB" />
                     <XAxis key="xaxis" type="number" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} />
-                    <YAxis key="yaxis" type="category" dataKey="name" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip key="tooltip" cursor={{ fill: '#F3F4F6' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                    <Legend key="legend" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                    <Bar key="bar-food" dataKey="foodSales" name="Alimentos" stackId="a" fill="#ea580c" radius={[0, 0, 0, 0]} />
-                    <Bar key="bar-drink" dataKey="drinkSales" name="Bebidas" stackId="a" fill="#fcd34d" radius={[0, 4, 4, 0]} />
+                    <YAxis key="yaxis" type="category" dataKey="name" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} width={100} />
+                    <Tooltip key="tooltip" cursor={{ fill: '#F3F4F6' }} formatter={(val: number) => [money(val), 'Ventas']} />
+                    <Bar key="bar" dataKey="ventas" name="Ventas" fill="#ea580c" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -537,16 +573,17 @@ function StaffModule({ status, staffPerformance }: { status: DataStatus; staffPe
 
         <Card>
           <CardHeader>
-            <CardTitle>Panel de Productividad & Asistencia</CardTitle>
-            <CardDescription>Detalle de KPIs por empleado.</CardDescription>
+            <CardTitle>Panel de Productividad</CardTitle>
+            <CardDescription>Detalle por empleado y rol.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <DataStateWrapper status={status}>
+            <DataStateWrapper status={statusFor(staffPerformance.length > 0)}>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Empleado</TableHead>
-                    <TableHead className="text-center">T. Rotación</TableHead>
+                    <TableHead>Rol</TableHead>
+                    <TableHead className="text-right">Métrica</TableHead>
                     <TableHead className="text-center">Turnos</TableHead>
                     <TableHead className="text-center">Hrs Extra</TableHead>
                   </TableRow>
@@ -557,13 +594,17 @@ function StaffModule({ status, staffPerformance }: { status: DataStatus; staffPe
                       <TableCell className="font-bold text-neutral-900">
                         {staff.name}
                         <div className="flex items-center gap-1 text-xs text-yellow-500 font-medium mt-1">
-                          <Star size={10} className="fill-yellow-500"/> {staff.rating.toFixed(1)}
+                          <Star size={10} className="fill-yellow-500" /> {staff.rating !== null ? staff.rating.toFixed(1) : '—'}
                         </div>
                       </TableCell>
-                      <TableCell className="text-center font-medium text-neutral-600">{staff.turnaround}m</TableCell>
-                      <TableCell className="text-center">{staff.shifts}/22</TableCell>
+                      <TableCell className="capitalize text-neutral-600">{staff.role}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        <span className="text-neutral-500 text-xs block">{staff.metricLabel}</span>
+                        {staff.metricIsMoney ? money(staff.metricValue) : staff.metricValue}
+                      </TableCell>
+                      <TableCell className="text-center">{staff.shifts}</TableCell>
                       <TableCell className="text-center">
-                        <span className={staff.overtime > 0 ? "text-orange-600 font-bold" : "text-neutral-400"}>
+                        <span className={staff.overtime > 0 ? 'text-orange-600 font-bold' : 'text-neutral-400'}>
                           {staff.overtime > 0 ? `+${staff.overtime}h` : '0h'}
                         </span>
                       </TableCell>
@@ -579,28 +620,30 @@ function StaffModule({ status, staffPerformance }: { status: DataStatus; staffPe
   );
 }
 
-function CostsModule({ status, wasteAlerts, costsData }: { status: DataStatus; wasteAlerts: WasteRow[]; costsData: CostsData }) {
+// --- COSTOS ---
+function CostsModule({ statusFor, costsData }: { statusFor: (b: boolean) => DataStatus; costsData: CostsData }) {
   const pieData = [{ name: 'Fijos', value: costsData.fixed }, { name: 'Variables', value: costsData.variable }];
-  const breakevenProgress = Math.min((costsData.sales / costsData.breakeven) * 100, 100);
+  const hasCostStructure = costsData.fixed > 0 || costsData.variable > 0;
+  const breakevenProgress = costsData.breakeven ? Math.min((costsData.sales / costsData.breakeven) * 100, 100) : 0;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Gestión de Costos y Rentabilidad</h1>
-          <p className="text-sm text-neutral-500">Dashboard financiero, punto de equilibrio y control de mermas.</p>
+          <p className="text-sm text-neutral-500">Food cost, estructura de costos y punto de equilibrio. Carga costos de platos y gastos operativos para alimentar este panel.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Food Cost %" value={`${costsData.foodCost}%`} trend={-1.2} icon={<PieChart className="text-blue-500"/>} subtitle="Objetivo: < 30%" />
-        <StatCard title="Punto de Equilibrio" value={`$${costsData.breakeven.toLocaleString()}`} icon={<Banknote className="text-green-500"/>} subtitle="Ventas necesarias" />
+        <StatCard title="Food Cost %" value={costsData.foodCostPct !== null ? `${costsData.foodCostPct.toFixed(1)}%` : '—'} icon={<TrendingDown className="text-blue-500" />} subtitle={costsData.foodCostPct === null ? 'Carga el costo de los platos' : 'Objetivo: < 30%'} />
+        <StatCard title="Punto de Equilibrio" value={costsData.breakeven !== null ? money(costsData.breakeven) : '—'} icon={<Banknote className="text-green-500" />} subtitle={costsData.breakeven === null ? 'Carga gastos operativos' : 'Ventas necesarias'} />
         <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm flex flex-col justify-center">
           <div className="flex justify-between mb-2"><span className="text-sm font-medium text-neutral-500">Progreso a Equilibrio</span><span className="font-bold text-neutral-900">{breakevenProgress.toFixed(1)}%</span></div>
           <div className="w-full bg-neutral-100 rounded-full h-2.5 overflow-hidden">
-            <div className={clsx("h-full rounded-full transition-all", breakevenProgress >= 100 ? "bg-green-500" : "bg-orange-500")} style={{width: `${breakevenProgress}%`}} />
+            <div className={clsx("h-full rounded-full transition-all", breakevenProgress >= 100 ? "bg-green-500" : "bg-orange-500")} style={{ width: `${breakevenProgress}%` }} />
           </div>
-          <p className="mt-2 text-xs text-neutral-400 text-right">Ventas: ${costsData.sales.toLocaleString()}</p>
+          <p className="mt-2 text-xs text-neutral-400 text-right">Ventas: {money(costsData.sales)}</p>
         </div>
       </div>
 
@@ -608,10 +651,10 @@ function CostsModule({ status, wasteAlerts, costsData }: { status: DataStatus; w
         <Card>
           <CardHeader>
             <CardTitle>Estructura de Costos</CardTitle>
-            <CardDescription>Costos fijos vs. variables.</CardDescription>
+            <CardDescription>Costos fijos vs. variables (gastos operativos).</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataStateWrapper status={status}>
+            <DataStateWrapper status={statusFor(hasCostStructure)} emptyMessage="Carga gastos operativos para ver la estructura de costos.">
               <div className="h-[250px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -619,8 +662,8 @@ function CostsModule({ status, wasteAlerts, costsData }: { status: DataStatus; w
                       <Cell key="cell-fijos" fill="#ea580c" />
                       <Cell key="cell-variables" fill="#fcd34d" />
                     </Pie>
-                    <Tooltip formatter={(val: number) => [`$${val.toLocaleString()}`, 'Monto']} />
-                    <Legend verticalAlign="bottom" height={36}/>
+                    <Tooltip formatter={(val: number) => [money(val), 'Monto']} />
+                    <Legend verticalAlign="bottom" height={36} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -630,23 +673,19 @@ function CostsModule({ status, wasteAlerts, costsData }: { status: DataStatus; w
 
         <Card>
           <CardHeader>
-             <CardTitle className="text-red-600 flex items-center gap-2"><ShieldAlert size={20}/> Alertas de Merma</CardTitle>
-             <CardDescription>Insumos con mayor desperdicio económico.</CardDescription>
+            <CardTitle>Resumen Financiero</CardTitle>
+            <CardDescription>Cifras reales acumuladas.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataStateWrapper status={status}>
-              <div className="h-[250px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={wasteAlerts} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                    <XAxis key="xaxis" dataKey="item" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis key="yaxis" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} />
-                    <Tooltip key="tooltip" cursor={{ fill: '#F3F4F6' }} formatter={(val: number, name: string, props: any) => [`$${val}`, `Merma (${props.payload.reason})`]} />
-                    <Bar key="bar-cost" dataKey="cost" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+            <div className="space-y-4">
+              <FinancialRow label="Ventas totales" value={money(costsData.sales)} />
+              <FinancialRow label="Costo de mercancía vendida (CMV)" value={costsData.cogs > 0 ? money(costsData.cogs) : '—'} />
+              <FinancialRow label="Costos fijos" value={money(costsData.fixed)} />
+              <FinancialRow label="Costos variables" value={money(costsData.variable)} />
+              <div className="border-t border-neutral-200 pt-4">
+                <FinancialRow label="Utilidad estimada" value={money(costsData.sales - costsData.cogs - costsData.fixed - costsData.variable)} bold />
               </div>
-            </DataStateWrapper>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -654,134 +693,109 @@ function CostsModule({ status, wasteAlerts, costsData }: { status: DataStatus; w
   );
 }
 
-function CRMModule({ status, crmCustomers }: { status: DataStatus; crmCustomers: CRMRow[] }) {
+function FinancialRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Reservas y Fidelizaci��n (CRM)</h1>
-          <p className="text-sm text-neutral-500">Historial de clientes frecuentes, preferencias y control de No-shows.</p>
-        </div>
-      </div>
-
-      <Card>
-         <CardHeader className="pb-4">
-            <CardTitle>Historial de Clientes VIP</CardTitle>
-            <CardDescription>Perfiles detallados y métricas de consumo.</CardDescription>
-         </CardHeader>
-         <CardContent className="p-0">
-           <DataStateWrapper status={status}>
-             <Table>
-               <TableHeader>
-                 <TableRow>
-                   <TableHead>Nombre del Cliente</TableHead>
-                   <TableHead className="text-center">Visitas</TableHead>
-                   <TableHead className="text-right">Ticket Prom.</TableHead>
-                   <TableHead>Platos Favoritos</TableHead>
-                   <TableHead className="text-center">No-Shows</TableHead>
-                   <TableHead>Última Visita</TableHead>
-                 </TableRow>
-               </TableHeader>
-               <TableBody>
-                 {crmCustomers.map(c => (
-                   <TableRow key={c.id}>
-                     <TableCell className="font-bold text-neutral-900">
-                       {c.name}
-                       {c.visits > 20 && <Badge className="ml-2 bg-purple-100 text-purple-700">Top VIP</Badge>}
-                     </TableCell>
-                     <TableCell className="text-center font-medium">{c.visits}</TableCell>
-                     <TableCell className="text-right text-green-600 font-bold">${c.avgSpend.toFixed(2)}</TableCell>
-                     <TableCell className="text-neutral-500 text-sm">{c.favorites}</TableCell>
-                     <TableCell className="text-center">
-                       <Badge variant={c.noShows > 0 ? 'destructive' : 'success'}>{c.noShows}</Badge>
-                     </TableCell>
-                     <TableCell className="text-neutral-500">{c.lastVisit}</TableCell>
-                   </TableRow>
-                 ))}
-               </TableBody>
-             </Table>
-           </DataStateWrapper>
-         </CardContent>
-      </Card>
+    <div className="flex items-center justify-between">
+      <span className={clsx("text-sm", bold ? "font-bold text-neutral-900" : "text-neutral-500")}>{label}</span>
+      <span className={clsx(bold ? "font-bold text-neutral-900 text-lg" : "font-medium text-neutral-700")}>{value}</span>
     </div>
   );
 }
 
-function InventoryModule({ status, rawMaterials }: { status: DataStatus; rawMaterials: RawMaterialRow[] }) {
-  const [search, setSearch] = useState('');
-  
-  const filteredMaterials = rawMaterials.filter(m => 
-    m.name.toLowerCase().includes(search.toLowerCase()) || 
-    m.category.toLowerCase().includes(search.toLowerCase())
-  );
+// --- RESERVAS ---
+function ReservasModule({ statusFor, reservations }: { statusFor: (b: boolean) => DataStatus; reservations: ReservationRow[] }) {
+  const today = new Date().toISOString().split('T')[0];
+  const total = reservations.length;
+  const confirmadas = reservations.filter(r => r.status === 'confirmada').length;
+  const upcoming = reservations.filter(r => r.date >= today && r.status === 'confirmada').length;
+  const totalPeople = reservations.reduce((a, r) => a + r.people, 0);
+  const avgPeople = total ? totalPeople / total : 0;
+
+  const byStatus = useMemo(() => {
+    const m = new Map<string, number>();
+    reservations.forEach(r => m.set(r.status, (m.get(r.status) || 0) + 1));
+    return Array.from(m.entries()).map(([name, value]) => ({ name, value }));
+  }, [reservations]);
+
+  const statusVariant = (s: string) => s === 'confirmada' ? 'success' : s === 'cancelada' ? 'destructive' : 'default';
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Gestión de Inventario</h1>
-          <p className="text-sm text-neutral-500">Control de materias primas e insumos (sin agrupar por receta).</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="bg-white border border-neutral-200 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-neutral-50">
-            <Download size={16} /> Exportar CSV
-          </button>
+          <h1 className="text-2xl font-bold text-neutral-900">Reservas</h1>
+          <p className="text-sm text-neutral-500">Listado de reservas y estadísticas relacionadas.</p>
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle>Materias Primas</CardTitle>
-          <CardDescription>Listado general de insumos requeridos para las operaciones del restaurante.</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="p-4 border-b border-neutral-100 flex items-center gap-4 bg-neutral-50/50">
-            <div className="relative max-w-md w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={16} />
-              <input 
-                type="text" 
-                placeholder="Buscar insumo o categoría..." 
-                value={search} 
-                onChange={e => setSearch(e.target.value)} 
-                className="w-full pl-9 pr-4 py-2 rounded-lg border border-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-          </div>
-          <DataStateWrapper status={status}>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Insumo</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Proveedor</TableHead>
-                  <TableHead className="text-right">Stock Mínimo</TableHead>
-                  <TableHead className="text-right">Stock Actual</TableHead>
-                  <TableHead className="text-center">Estado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredMaterials.map(m => {
-                   const isLowStock = m.stock <= m.minStock;
-                   return (
-                     <TableRow key={m.id}>
-                       <TableCell className="font-bold text-neutral-900">{m.name}</TableCell>
-                       <TableCell><Badge variant="default">{m.category}</Badge></TableCell>
-                       <TableCell className="text-neutral-500">{m.supplier}</TableCell>
-                       <TableCell className="text-right text-neutral-500">{m.minStock} {m.unit}</TableCell>
-                       <TableCell className={`text-right font-bold ${isLowStock ? 'text-red-600' : 'text-neutral-900'}`}>
-                         {m.stock} {m.unit}
-                       </TableCell>
-                       <TableCell className="text-center">
-                         {isLowStock ? <Badge variant="destructive">Reabastecer</Badge> : <Badge variant="success">Óptimo</Badge>}
-                       </TableCell>
-                     </TableRow>
-                   );
-                })}
-              </TableBody>
-            </Table>
-          </DataStateWrapper>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <StatCard title="Total Reservas" value={total} icon={<CalendarDays className="text-orange-500" />} />
+        <StatCard title="Confirmadas" value={confirmadas} icon={<CheckCircle2 className="text-green-500" />} />
+        <StatCard title="Próximas" value={upcoming} icon={<CalendarClock className="text-blue-500" />} subtitle="Confirmadas desde hoy" />
+        <StatCard title="Personas por Reserva" value={avgPeople ? avgPeople.toFixed(1) : '0'} icon={<UserCheck className="text-orange-500" />} subtitle={`${totalPeople} personas en total`} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Reservas por Estado</CardTitle>
+            <CardDescription>Distribución actual.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataStateWrapper status={statusFor(byStatus.length > 0)}>
+              <div className="h-[250px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={byStatus} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={5} dataKey="value" nameKey="name">
+                      {byStatus.map((entry, i) => <Cell key={`cell-${entry.name}`} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(val: number, name: string) => [val, name]} />
+                    <Legend verticalAlign="bottom" height={36} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </DataStateWrapper>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-4">
+            <CardTitle>Listado de Reservas</CardTitle>
+            <CardDescription>Detalle de cada reserva registrada.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <DataStateWrapper status={statusFor(reservations.length > 0)}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Hora</TableHead>
+                    <TableHead className="text-center">Personas</TableHead>
+                    <TableHead>Contacto</TableHead>
+                    <TableHead>Estado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {reservations.map(r => (
+                    <TableRow key={r.id}>
+                      <TableCell className="font-bold text-neutral-900">
+                        {r.name}
+                        {r.notes && <div className="text-xs text-neutral-400 font-normal mt-0.5">{r.notes}</div>}
+                      </TableCell>
+                      <TableCell className="text-neutral-600">{r.date}</TableCell>
+                      <TableCell className="text-neutral-600">{r.time}</TableCell>
+                      <TableCell className="text-center font-medium">{r.people}</TableCell>
+                      <TableCell className="text-neutral-500 text-sm">{r.contact}</TableCell>
+                      <TableCell><Badge variant={statusVariant(r.status)}>{r.status}</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </DataStateWrapper>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
