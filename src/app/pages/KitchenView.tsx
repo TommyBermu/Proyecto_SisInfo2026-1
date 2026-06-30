@@ -1,19 +1,59 @@
 import React, { useEffect, useState } from 'react';
 import { useRestaurant, Order } from '../context/RestaurantContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle, Clock, AlertTriangle, EyeOff, Flame, Clipboard } from 'lucide-react';
+import { CheckCircle, Clock, AlertTriangle, EyeOff, Clipboard, RefreshCw } from 'lucide-react';
 import { differenceInMinutes } from 'date-fns';
 import { clsx } from 'clsx';
+import { supabase } from '../../lib/supabase';
+
+interface HistoryOrder {
+  id: string;
+  mesa_id: string | null;
+  estado_preparacion: string;
+  created_at: string;
+  detalle_pedido: Array<{
+    plato_id: string;
+    cantidad: number;
+    precio_unitario: number;
+  }>;
+}
 
 export default function KitchenView() {
   const { orders, completeOrder, dishes, toggleDishStatus, tables } = useRestaurant();
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [stockSearch, setStockSearch] = useState('');
-  // Only show orders that are pending or currently cooking in the main KDS
-  const activeOrders = orders.filter(o => o.status === 'pending' || o.status === 'cooking').sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-
-  // Stock Control Panel State
+  const [isHistoryOpen,  setIsHistoryOpen]  = useState(false);
   const [isStockPanelOpen, setIsStockPanelOpen] = useState(false);
+  const [stockSearch,    setStockSearch]    = useState('');
+  const [historyOrders,  setHistoryOrders]  = useState<HistoryOrder[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const activeOrders = orders
+    .filter(o => o.status === 'pending' || o.status === 'cooking')
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  const fetchHistory = async () => {
+    setHistoryLoading(true);
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('pedido')
+      .select(`
+        id,
+        mesa_id,
+        estado_preparacion,
+        created_at,
+        detalle_pedido ( plato_id, cantidad, precio_unitario )
+      `)
+      .eq('fecha', today)
+      .in('estado_preparacion', ['listo', 'entregado'])
+      .order('created_at', { ascending: false });
+
+    if (error) console.error('Error fetching history:', error);
+    setHistoryOrders(data ?? []);
+    setHistoryLoading(false);
+  };
+
+  useEffect(() => {
+    if (isHistoryOpen) void fetchHistory();
+  }, [isHistoryOpen]);
 
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col bg-neutral-900 text-white p-6 overflow-hidden">
@@ -126,32 +166,74 @@ export default function KitchenView() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-0 left-0 right-0 h-1/3 bg-neutral-800 border-t border-neutral-700 shadow-2xl z-50 p-6 overflow-y-auto"
+            className="absolute bottom-0 left-0 right-0 h-2/5 bg-neutral-800 border-t border-neutral-700 shadow-2xl z-50 flex flex-col"
           >
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-white">Historial - Pedidos Listos / Completados</h3>
-              <button onClick={() => setIsHistoryOpen(false)} className="text-neutral-400 hover:text-white">
-                <AlertTriangle size={24} />
-              </button>
+            {/* Header */}
+            <div className="flex justify-between items-center px-6 py-4 border-b border-neutral-700 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <h3 className="text-lg font-bold text-white">
+                  Historial del día — {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </h3>
+                <span className="text-xs bg-neutral-700 text-neutral-300 px-2 py-1 rounded-full">
+                  {historyOrders.length} pedidos
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void fetchHistory()}
+                  disabled={historyLoading}
+                  className="p-2 text-neutral-400 hover:text-white transition-colors disabled:opacity-40"
+                  title="Actualizar"
+                >
+                  <RefreshCw size={16} className={historyLoading ? 'animate-spin' : ''} />
+                </button>
+                <button onClick={() => setIsHistoryOpen(false)} className="p-2 text-neutral-400 hover:text-white transition-colors">
+                  <AlertTriangle size={20} />
+                </button>
+              </div>
             </div>
-            <div className="space-y-3">
-              {orders.filter(o => o.status === 'ready' || o.status === 'completed').length === 0 ? (
-                <div className="text-neutral-400 italic">No hay pedidos en el historial</div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {historyLoading ? (
+                <div className="flex items-center justify-center h-full text-neutral-500">
+                  <RefreshCw size={20} className="animate-spin mr-2" /> Cargando...
+                </div>
+              ) : historyOrders.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-neutral-500 italic">
+                  No hay pedidos completados hoy
+                </div>
               ) : (
-                orders
-                  .filter(o => o.status === 'ready' || o.status === 'completed')
-                  .map(o => (
-                    <div key={o.id} className="p-3 bg-neutral-700 rounded-lg border border-neutral-600">
-                      <div className="flex justify-between items-center mb-2">
-                        <div>
-                          <div className="text-sm text-neutral-300">Mesa {tables.find(t => t.id === o.tableId)?.number ?? 'N/A'}</div>
-                          <div className="text-xs text-neutral-400">Pedido #{o.id.substring(0, 8)}</div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {historyOrders.map(o => {
+                    const tableNum  = tables.find(t => t.id === o.mesa_id)?.number ?? 'N/A';
+                    const itemCount = o.detalle_pedido.reduce((acc, d) => acc + d.cantidad, 0);
+                    const total     = o.detalle_pedido.reduce((acc, d) => acc + d.precio_unitario * d.cantidad, 0);
+                    const hora      = new Date(o.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+                    const isEntregado = o.estado_preparacion === 'entregado';
+                    return (
+                      <div key={o.id} className="p-3 bg-neutral-700 rounded-lg border border-neutral-600">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <div className="text-base font-bold text-white">Mesa {tableNum}</div>
+                            <div className="text-xs text-neutral-400 mt-0.5">{hora} · #{o.id.substring(0, 8)}</div>
+                          </div>
+                          <span className={clsx(
+                            'text-xs font-semibold px-2 py-0.5 rounded-full',
+                            isEntregado
+                              ? 'bg-green-900/50 text-green-300'
+                              : 'bg-yellow-900/50 text-yellow-300'
+                          )}>
+                            {isEntregado ? 'Entregado' : 'Listo'}
+                          </span>
                         </div>
-                        <div className="text-sm font-medium text-green-200">{o.status === 'ready' ? 'Listo para recoger' : 'Completado'}</div>
+                        <div className="text-xs text-neutral-400">
+                          {itemCount} ítem{itemCount !== 1 ? 's' : ''} · ${total.toLocaleString('es-CO', { maximumFractionDigits: 0 })}
+                        </div>
                       </div>
-                      <div className="text-sm text-neutral-300">{o.items.length} items · S/ {o.total.toFixed(2)}</div>
-                    </div>
-                  ))
+                    );
+                  })}
+                </div>
               )}
             </div>
           </motion.div>
