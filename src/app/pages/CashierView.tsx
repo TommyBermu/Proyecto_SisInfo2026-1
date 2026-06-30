@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   CreditCard, DollarSign, Receipt, TrendingUp, Clock,
   CheckCircle2, X, Scissors, Plus, Minus, ChevronRight,
-  ArrowLeft, Smartphone, Banknote, RefreshCw,
+  ArrowLeft, Smartphone, Banknote, RefreshCw, Star,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx } from 'clsx';
@@ -89,8 +89,9 @@ export default function CashierView() {
   const [paymentModalOrder, setPaymentModalOrder]  = useState<Order | null>(null);
   const [splitModalOrder,   setSplitModalOrder]    = useState<Order | null>(null);
   const [processingOrderId, setProcessingOrderId]  = useState<string | null>(null);
-  // Immediately hide paid orders without waiting for realtime
   const [paidOrderIds,      setPaidOrderIds]       = useState<Set<string>>(new Set());
+  // Rating modal: stores the orderId just paid, awaiting rating or skip
+  const [ratingOrderId,     setRatingOrderId]      = useState<string | null>(null);
 
   const fetchTodayStats = async () => {
     const today = new Date().toISOString().split('T')[0];
@@ -250,6 +251,7 @@ export default function CashierView() {
     setProcessingOrderId(null);
     setPaymentModalOrder(null);
     setPaidOrderIds(prev => new Set([...prev, orderId]));
+    setRatingOrderId(orderId);
     try { await Promise.all([fetchTodayStats(), fetchOrders()]); } catch (e) { console.error('Refresh failed:', e); }
   };
 
@@ -295,7 +297,41 @@ export default function CashierView() {
     // ── NON-CRITICAL PATH ──────────────────────────────────────────────────
     setSplitModalOrder(null);
     setPaidOrderIds(prev => new Set([...prev, orderId]));
+    setRatingOrderId(orderId);
     try { await Promise.all([fetchTodayStats(), fetchOrders()]); } catch (e) { console.error('Refresh failed:', e); }
+  };
+
+  // ── Rating ─────────────────────────────────────────────────────────────────
+
+  const handleSubmitRating = async (stars: number, comment: string) => {
+    const orderId = ratingOrderId;
+    setRatingOrderId(null);
+    if (!orderId) return;
+
+    try {
+      const [{ data: pedido }, { data: detalles }] = await Promise.all([
+        supabase.from('pedido').select('mesero_id').eq('id', orderId).single(),
+        supabase.from('detalle_pedido').select('chef_id').eq('pedido_id', orderId).not('chef_id', 'is', null),
+      ]);
+
+      const empleadosIds = new Set<string>();
+      if (pedido?.mesero_id) empleadosIds.add(pedido.mesero_id);
+      if (profile?.id) empleadosIds.add(profile.id);
+      (detalles ?? []).forEach((d: { chef_id: string | null }) => { if (d.chef_id) empleadosIds.add(d.chef_id); });
+
+      const rows = Array.from(empleadosIds).map(empleado_id => ({
+        empleado_id,
+        calificacion: stars,
+        comentario: comment.trim() || null,
+      }));
+
+      if (rows.length > 0) {
+        const { error } = await supabase.from('empleado_calificacion').insert(rows);
+        if (error) console.error('Error saving rating:', error);
+      }
+    } catch (e) {
+      console.error('Rating submission failed:', e);
+    }
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -434,6 +470,15 @@ export default function CashierView() {
             tables={tables}
             onClose={() => setSplitModalOrder(null)}
             onConfirm={(parts) => void handleSplitPayment(splitModalOrder.id, parts)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {ratingOrderId && (
+          <RatingModal
+            onSkip={() => setRatingOrderId(null)}
+            onSubmit={(stars, comment) => void handleSubmitRating(stars, comment)}
           />
         )}
       </AnimatePresence>
@@ -1083,5 +1128,102 @@ function SplitBillModal({
         </div>
       </motion.div>
     </div>
+  );
+}
+
+// ─── RatingModal ──────────────────────────────────────────────────────────────
+
+function RatingModal({ onSkip, onSubmit }: { onSkip: () => void; onSubmit: (stars: number, comment: string) => void }) {
+  const [hovered, setHovered] = useState(0);
+  const [selected, setSelected] = useState(0);
+  const [comment, setComment] = useState('');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden"
+      >
+        {/* Header */}
+        <div className="bg-neutral-900 px-6 py-5 text-center">
+          <div className="flex justify-center mb-2">
+            <CheckCircle2 size={32} className="text-green-400" />
+          </div>
+          <h2 className="text-xl font-bold text-white">¡Pago confirmado!</h2>
+          <p className="text-neutral-400 text-sm mt-1">¿Cómo califica el servicio?</p>
+        </div>
+
+        {/* Stars */}
+        <div className="px-6 pt-6 pb-4">
+          <div className="flex justify-center gap-2 mb-5">
+            {[1, 2, 3, 4, 5].map(star => {
+              const filled = star <= (hovered || selected);
+              return (
+                <button
+                  key={star}
+                  onMouseEnter={() => setHovered(star)}
+                  onMouseLeave={() => setHovered(0)}
+                  onClick={() => setSelected(star)}
+                  className="transition-transform hover:scale-110 focus:outline-none"
+                  aria-label={`${star} estrellas`}
+                >
+                  <Star
+                    size={40}
+                    className={clsx('transition-colors', filled ? 'text-amber-400' : 'text-neutral-200')}
+                    fill={filled ? 'currentColor' : 'none'}
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          {selected > 0 && (
+            <p className="text-center text-sm font-semibold text-neutral-700 mb-4">
+              {['', 'Muy malo', 'Malo', 'Regular', 'Bueno', 'Excelente'][selected]}
+            </p>
+          )}
+
+          {/* Optional comment */}
+          <textarea
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            placeholder="Comentario opcional..."
+            rows={2}
+            className="w-full text-sm px-3 py-2 border-2 border-neutral-200 rounded-xl resize-none focus:outline-none focus:border-neutral-400 placeholder-neutral-300"
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="px-6 pb-6 flex flex-col gap-2">
+          <button
+            disabled={selected === 0}
+            onClick={() => onSubmit(selected, comment)}
+            className={clsx(
+              'w-full py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2',
+              selected > 0
+                ? 'bg-neutral-900 text-white hover:bg-neutral-700'
+                : 'bg-neutral-100 text-neutral-300 cursor-not-allowed'
+            )}
+          >
+            <Star size={16} fill={selected > 0 ? 'currentColor' : 'none'} />
+            Enviar calificación
+          </button>
+          <button
+            onClick={onSkip}
+            className="w-full py-2.5 rounded-xl font-medium text-neutral-400 hover:text-neutral-600 hover:bg-neutral-50 transition-colors text-sm"
+          >
+            Omitir
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
