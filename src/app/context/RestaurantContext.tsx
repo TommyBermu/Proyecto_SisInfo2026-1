@@ -82,6 +82,7 @@ interface RestaurantContextType {
     receivedAmount?: number
   ) => Promise<void>;
   addReservation: (reservation: Reservation) => void;
+  fetchOrders: () => Promise<void>;
 }
 
 // --- Context ---
@@ -777,7 +778,8 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
       completeOrder,
       markOrderAsViewed,
       processPayment,
-      addReservation
+      addReservation,
+      fetchOrders,
     }}>
       {children}
     </RestaurantContext.Provider>
