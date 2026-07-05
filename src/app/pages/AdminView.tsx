@@ -5,13 +5,14 @@ import {
   BarChart3, History, Users, DollarSign, CalendarDays,
   Search, Star, Banknote, LayoutDashboard, Utensils,
   Clock, TrendingDown, CheckCircle2, UserCheck, CalendarClock,
-  UserPlus, Copy, Mail, ShieldCheck, Loader2, Link2
+  UserPlus, Copy, Mail, ShieldCheck, Loader2, Link2, Trash2, Pencil, Plus, X, Image as ImageIcon
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis, Legend
 } from 'recharts';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 import { DataStateWrapper, StatCard, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/admin/AdminComponents';
 
@@ -19,9 +20,11 @@ type DataStatus = 'loading' | 'error' | 'empty' | 'success';
 
 type HourlyRevenue = { hour: string; ingreso: number };
 type PaymentSlice = { name: string; value: number };
-type MenuEngineeringRow = { id: string; name: string; margin: number | null; popularity: number; units: number; revenue: number; prepTime: number | null };
+type MenuEngineeringRow = { id: string; name: string; margin: number | null; timesOrdered: number; revenue: number };
 type TransactionRow = { id: string; table: string; waiter: string; cashier: string; payment: string; time: string; amount: number; status: string };
-type StaffRow = { id: string; name: string; role: string; metricLabel: string; metricValue: number; metricIsMoney: boolean; rating: number | null; shifts: number; overtime: number };
+type StaffRow = { id: string; name: string; role: string; metricLabel: string; metricValue: number; metricIsMoney: boolean; rating: number | null };
+type MesaRotationRow = { mesa: string; tickets: number; avgMin: number };
+type KitchenTimeRow = { platos: number; avgMin: number; muestras: number };
 type CostsData = { foodCostPct: number | null; fixed: number; variable: number; cogs: number; sales: number; breakeven: number | null };
 type ReservationRow = { id: string; name: string; date: string; time: string; people: number; status: string; contact: string; notes: string };
 
@@ -31,7 +34,7 @@ const paymentLabel = (m: string) => PAYMENT_LABELS[m] || m || 'Otro';
 const money = (n: number) => `$${n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function AdminView() {
-  const [activeTab, setActiveTab] = useState<'sales' | 'audit' | 'staff' | 'costs' | 'reservas' | 'usuarios'>('sales');
+  const [activeTab, setActiveTab] = useState<'sales' | 'audit' | 'staff' | 'costs' | 'reservas' | 'platos' | 'usuarios'>('sales');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -46,6 +49,8 @@ export default function AdminView() {
   const [activeEmployees, setActiveEmployees] = useState(0);
   const [avgRating, setAvgRating] = useState<number | null>(null);
   const [avgTurnaround, setAvgTurnaround] = useState<number | null>(null);
+  const [mesaRotation, setMesaRotation] = useState<MesaRotationRow[]>([]);
+  const [kitchenTimeByDishes, setKitchenTimeByDishes] = useState<KitchenTimeRow[]>([]);
   const [costsData, setCostsData] = useState<CostsData>({ foodCostPct: null, fixed: 0, variable: 0, cogs: 0, sales: 0, breakeven: null });
   const [reservations, setReservations] = useState<ReservationRow[]>([]);
 
@@ -118,27 +123,25 @@ export default function AdminView() {
         setPaymentBreakdown(Array.from(byPayment.entries()).map(([k, v]) => ({ name: paymentLabel(k), value: Math.round(v) })));
 
         // --- INGENIERÍA DE MENÚ ---
-        const unitsByPlato = new Map<string, number>();
+        // Popularidad = cuántas veces se ha pedido el plato (nº de líneas de venta).
+        // Ingresos = suma de subtotales reales (unidades × precio de venta).
+        const timesOrderedByPlato = new Map<string, number>();
         const revenueByPlato = new Map<string, number>();
         ventaPlato.forEach((vp: any) => {
-          unitsByPlato.set(vp.plato_id, (unitsByPlato.get(vp.plato_id) || 0) + Number(vp.cantidad || 0));
+          timesOrderedByPlato.set(vp.plato_id, (timesOrderedByPlato.get(vp.plato_id) || 0) + 1);
           revenueByPlato.set(vp.plato_id, (revenueByPlato.get(vp.plato_id) || 0) + Number(vp.subtotal || 0));
         });
-        const maxUnits = Math.max(1, ...Array.from(unitsByPlato.values()));
         setMenuEngineering(
           platos
             .map((p: any) => {
               const precio = Number(p.valor_actual || 0);
               const costo = p.costo === null || p.costo === undefined ? null : Number(p.costo);
-              const units = unitsByPlato.get(p.id) || 0;
               return {
                 id: p.id,
                 name: p.nombre,
                 margin: costo !== null && precio > 0 ? Math.round(((precio - costo) / precio) * 100) : null,
-                popularity: Math.round((units / maxUnits) * 100),
-                units,
+                timesOrdered: timesOrderedByPlato.get(p.id) || 0,
                 revenue: Math.round(revenueByPlato.get(p.id) || 0),
-                prepTime: p.tiempo_preparacion_min ?? null,
               };
             })
             .sort((a, b) => b.revenue - a.revenue)
@@ -187,12 +190,6 @@ export default function AdminView() {
           cur.sum += Number(c.calificacion || 0); cur.n += 1;
           ratingAgg.set(c.empleado_id, cur);
         });
-        const shiftsByEmp = new Map<string, number>();
-        const overtimeByEmp = new Map<string, number>();
-        turnos.forEach((t: any) => {
-          shiftsByEmp.set(t.empleado_id, (shiftsByEmp.get(t.empleado_id) || 0) + 1);
-          overtimeByEmp.set(t.empleado_id, (overtimeByEmp.get(t.empleado_id) || 0) + Number(t.horas_extra || 0));
-        });
 
         setStaffPerformance(
           empleados.map((e: any) => {
@@ -207,8 +204,6 @@ export default function AdminView() {
               role: e.rol,
               metricLabel, metricValue, metricIsMoney,
               rating: rating ? rating.sum / rating.n : null,
-              shifts: shiftsByEmp.get(e.id) || 0,
-              overtime: overtimeByEmp.get(e.id) || 0,
             };
           })
         );
@@ -216,16 +211,47 @@ export default function AdminView() {
         const allRatings = calificaciones.map((c: any) => Number(c.calificacion || 0));
         setAvgRating(allRatings.length ? allRatings.reduce((a, b) => a + b, 0) / allRatings.length : null);
 
-        // rotación de mesa: tiempo entre creación del pedido y pago de la factura
+        // nº de platos por factura (para relacionar tiempo del ticket con la cantidad de platos)
+        const dishesByFactura = new Map<string, number>();
+        ventaPlato.forEach((vp: any) => {
+          dishesByFactura.set(vp.factura_id, (dishesByFactura.get(vp.factura_id) || 0) + Number(vp.cantidad || 0));
+        });
+
+        // Rotación por mesa + tiempo del ticket (creación del pedido -> pago) según nº de platos
         const turnarounds: number[] = [];
+        const mesaAgg = new Map<string, { tickets: number; sumMin: number }>();
+        const timeByDishCount = new Map<number, { sum: number; n: number }>();
         facturas.forEach((f: any) => {
           const pedido = pedidoById.get(f.pedido_id);
-          if (pedido?.created_at && f.created_at) {
-            const mins = (new Date(f.created_at).getTime() - new Date(pedido.created_at).getTime()) / 60000;
-            if (mins >= 0 && mins < 600) turnarounds.push(mins);
+          if (!pedido?.created_at || !f.created_at) return;
+          const mins = (new Date(f.created_at).getTime() - new Date(pedido.created_at).getTime()) / 60000;
+          if (mins < 0 || mins >= 600) return;
+          turnarounds.push(mins);
+
+          const mesa = mesaById.get(pedido.mesa_id);
+          const mesaKey = mesa ? `Mesa ${mesa.numero}` : 'Para llevar';
+          const cur = mesaAgg.get(mesaKey) || { tickets: 0, sumMin: 0 };
+          cur.tickets += 1; cur.sumMin += mins;
+          mesaAgg.set(mesaKey, cur);
+
+          const nPlatos = dishesByFactura.get(f.id) || 0;
+          if (nPlatos > 0) {
+            const t = timeByDishCount.get(nPlatos) || { sum: 0, n: 0 };
+            t.sum += mins; t.n += 1;
+            timeByDishCount.set(nPlatos, t);
           }
         });
         setAvgTurnaround(turnarounds.length ? turnarounds.reduce((a, b) => a + b, 0) / turnarounds.length : null);
+        setMesaRotation(
+          Array.from(mesaAgg.entries())
+            .map(([mesa, v]) => ({ mesa, tickets: v.tickets, avgMin: v.sumMin / v.tickets }))
+            .sort((a, b) => b.tickets - a.tickets)
+        );
+        setKitchenTimeByDishes(
+          Array.from(timeByDishCount.entries())
+            .map(([platos, v]) => ({ platos, avgMin: v.sum / v.n, muestras: v.n }))
+            .sort((a, b) => a.platos - b.platos)
+        );
 
         // --- COSTOS ---
         const costoById = new Map(platos.map((p: any) => [p.id, p.costo === null || p.costo === undefined ? null : Number(p.costo)]));
@@ -279,6 +305,7 @@ export default function AdminView() {
     { id: 'staff', label: 'Rendimiento (KPIs)', icon: <Users size={20} /> },
     { id: 'costs', label: 'Costos y Rentabilidad', icon: <DollarSign size={20} /> },
     { id: 'reservas', label: 'Reservas', icon: <CalendarDays size={20} /> },
+    { id: 'platos', label: 'Platos', icon: <Utensils size={20} /> },
     { id: 'usuarios', label: 'Usuarios', icon: <UserPlus size={20} /> },
   ] as const;
 
@@ -320,9 +347,10 @@ export default function AdminView() {
           >
             {activeTab === 'sales' && <SalesModule statusFor={statusFor} totalRevenue={totalRevenue} totalTips={totalTips} avgTicket={avgTicket} hourlyRevenue={hourlyRevenue} paymentBreakdown={paymentBreakdown} menuEngineering={menuEngineering} />}
             {activeTab === 'audit' && <AuditModule statusFor={statusFor} transactions={transactions} />}
-            {activeTab === 'staff' && <StaffModule statusFor={statusFor} staffPerformance={staffPerformance} activeEmployees={activeEmployees} avgRating={avgRating} avgTurnaround={avgTurnaround} />}
+            {activeTab === 'staff' && <StaffModule statusFor={statusFor} activeEmployees={activeEmployees} avgRating={avgRating} avgTurnaround={avgTurnaround} salesByMesero={staffPerformance.filter(s => s.role === 'mesero' && s.metricValue > 0).map(s => ({ name: s.name, ventas: Math.round(s.metricValue) })).sort((a, b) => b.ventas - a.ventas)} mesaRotation={mesaRotation} kitchenTimeByDishes={kitchenTimeByDishes} />}
             {activeTab === 'costs' && <CostsModule statusFor={statusFor} costsData={costsData} />}
             {activeTab === 'reservas' && <ReservasModule statusFor={statusFor} reservations={reservations} />}
+            {activeTab === 'platos' && <PlatosModule />}
             {activeTab === 'usuarios' && <UsuariosModule />}
           </motion.div>
         </AnimatePresence>
@@ -404,7 +432,7 @@ function SalesModule({ statusFor, totalRevenue, totalTips, avgTicket, hourlyReve
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Ingeniería de Menú</CardTitle>
-            <CardDescription>Unidades vendidas, ingresos y popularidad reales. Margen y tiempo se calculan al cargar costo / tiempo en cada plato.</CardDescription>
+            <CardDescription>Popularidad (veces pedido) e ingresos reales por plato. El margen se calcula al cargar el costo de cada plato.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <DataStateWrapper status={statusFor(menuEngineering.length > 0)}>
@@ -412,22 +440,18 @@ function SalesModule({ statusFor, totalRevenue, totalTips, avgTicket, hourlyReve
                 <TableHeader>
                   <TableRow>
                     <TableHead>Plato</TableHead>
-                    <TableHead className="text-right">Unidades</TableHead>
-                    <TableHead className="text-right">Ingresos</TableHead>
                     <TableHead className="text-right">Popularidad</TableHead>
+                    <TableHead className="text-right">Ingresos</TableHead>
                     <TableHead className="text-right">Margen</TableHead>
-                    <TableHead className="text-right">T. Cocina</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {menuEngineering.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="font-bold text-neutral-900">{item.name}</TableCell>
-                      <TableCell className="text-right">{item.units}</TableCell>
+                      <TableCell className="text-right">{item.timesOrdered} {item.timesOrdered === 1 ? 'vez' : 'veces'}</TableCell>
                       <TableCell className="text-right font-medium">{money(item.revenue)}</TableCell>
-                      <TableCell className="text-right">{item.popularity}/100</TableCell>
                       <TableCell className="text-right">{item.margin !== null ? `${item.margin}%` : <span className="text-neutral-400">—</span>}</TableCell>
-                      <TableCell className="text-right text-neutral-500">{item.prepTime !== null ? `${item.prepTime} min` : <span className="text-neutral-400">—</span>}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -447,10 +471,10 @@ function SalesModule({ statusFor, totalRevenue, totalTips, avgTicket, hourlyReve
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart margin={{ top: 20, right: 20, bottom: 10, left: 0 }}>
                     <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                    <XAxis key="xaxis" type="number" dataKey="popularity" name="Popularidad" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
+                    <XAxis key="xaxis" type="number" dataKey="timesOrdered" name="Popularidad" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis key="yaxis" type="number" dataKey="margin" name="Margen" unit="%" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <ZAxis key="zaxis" type="number" dataKey="units" range={[60, 200]} />
-                    <Tooltip key="tooltip" cursor={{ strokeDasharray: '3 3' }} formatter={(value: number, name: string) => [name === 'Margen' ? `${value}%` : value, name]} />
+                    <ZAxis key="zaxis" type="number" dataKey="revenue" range={[60, 240]} />
+                    <Tooltip key="tooltip" cursor={{ strokeDasharray: '3 3' }} formatter={(value: number, name: string) => [name === 'Margen' ? `${value}%` : name === 'Popularidad' ? `${value} veces` : money(Number(value)), name]} />
                     <Scatter key="scatter" name="Platos" data={scatterData} fill="#ea580c" />
                   </ScatterChart>
                 </ResponsiveContainer>
@@ -530,18 +554,24 @@ function AuditModule({ statusFor, transactions }: { statusFor: (b: boolean) => D
 }
 
 // --- STAFF ---
-function StaffModule({ statusFor, staffPerformance, activeEmployees, avgRating, avgTurnaround }: {
+function StaffModule({ statusFor, activeEmployees, avgRating, avgTurnaround, salesByMesero, mesaRotation, kitchenTimeByDishes }: {
   statusFor: (b: boolean) => DataStatus;
-  staffPerformance: StaffRow[]; activeEmployees: number; avgRating: number | null; avgTurnaround: number | null;
+  activeEmployees: number; avgRating: number | null; avgTurnaround: number | null;
+  salesByMesero: { name: string; ventas: number }[];
+  mesaRotation: MesaRotationRow[]; kitchenTimeByDishes: KitchenTimeRow[];
 }) {
-  const salesChart = staffPerformance.filter(s => s.metricIsMoney && s.metricValue > 0).map(s => ({ name: s.name, ventas: Math.round(s.metricValue) }));
+  const kitchenChart = kitchenTimeByDishes.map(k => ({
+    platos: `${k.platos} ${k.platos === 1 ? 'plato' : 'platos'}`,
+    minutos: Math.round(k.avgMin),
+    muestras: k.muestras,
+  }));
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Rendimiento del Personal</h1>
-          <p className="text-sm text-neutral-500">Productividad real por rol. Calificaciones y turnos se calculan al cargar esos datos.</p>
+          <p className="text-sm text-neutral-500">Ventas por mesero, rotación de mesas y tiempo de servicio según el tamaño del ticket.</p>
         </div>
       </div>
 
@@ -554,14 +584,14 @@ function StaffModule({ statusFor, staffPerformance, activeEmployees, avgRating, 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Ventas por Empleado</CardTitle>
-            <CardDescription>Facturación generada (meseros y cajeros).</CardDescription>
+            <CardTitle>Ventas por Mesero</CardTitle>
+            <CardDescription>Facturación generada por cada mesero.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataStateWrapper status={statusFor(salesChart.length > 0)}>
+            <DataStateWrapper status={statusFor(salesByMesero.length > 0)}>
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={salesChart} layout="vertical" margin={{ left: 20 }}>
+                  <BarChart data={salesByMesero} layout="vertical" margin={{ left: 20 }}>
                     <CartesianGrid key="grid" strokeDasharray="3 3" horizontal vertical={false} stroke="#E5E7EB" />
                     <XAxis key="xaxis" type="number" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} />
                     <YAxis key="yaxis" type="category" dataKey="name" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} width={100} />
@@ -576,41 +606,25 @@ function StaffModule({ statusFor, staffPerformance, activeEmployees, avgRating, 
 
         <Card>
           <CardHeader>
-            <CardTitle>Panel de Productividad</CardTitle>
-            <CardDescription>Detalle por empleado y rol.</CardDescription>
+            <CardTitle>Rotación por Mesa</CardTitle>
+            <CardDescription>Tickets atendidos y tiempo promedio del pedido al pago por mesa.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <DataStateWrapper status={statusFor(staffPerformance.length > 0)}>
+            <DataStateWrapper status={statusFor(mesaRotation.length > 0)}>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Empleado</TableHead>
-                    <TableHead>Rol</TableHead>
-                    <TableHead className="text-right">Métrica</TableHead>
-                    <TableHead className="text-center">Turnos</TableHead>
-                    <TableHead className="text-center">Hrs Extra</TableHead>
+                    <TableHead>Mesa</TableHead>
+                    <TableHead className="text-center">Tickets</TableHead>
+                    <TableHead className="text-right">Tiempo prom.</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {staffPerformance.map(staff => (
-                    <TableRow key={staff.id}>
-                      <TableCell className="font-bold text-neutral-900">
-                        {staff.name}
-                        <div className="flex items-center gap-1 text-xs text-yellow-500 font-medium mt-1">
-                          <Star size={10} className="fill-yellow-500" /> {staff.rating !== null ? staff.rating.toFixed(1) : '—'}
-                        </div>
-                      </TableCell>
-                      <TableCell className="capitalize text-neutral-600">{staff.role}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        <span className="text-neutral-500 text-xs block">{staff.metricLabel}</span>
-                        {staff.metricIsMoney ? money(staff.metricValue) : staff.metricValue}
-                      </TableCell>
-                      <TableCell className="text-center">{staff.shifts}</TableCell>
-                      <TableCell className="text-center">
-                        <span className={staff.overtime > 0 ? 'text-orange-600 font-bold' : 'text-neutral-400'}>
-                          {staff.overtime > 0 ? `+${staff.overtime}h` : '0h'}
-                        </span>
-                      </TableCell>
+                  {mesaRotation.map(m => (
+                    <TableRow key={m.mesa}>
+                      <TableCell className="font-bold text-neutral-900">{m.mesa}</TableCell>
+                      <TableCell className="text-center">{m.tickets}</TableCell>
+                      <TableCell className="text-right text-neutral-600">{Math.round(m.avgMin)} min</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -619,6 +633,28 @@ function StaffModule({ statusFor, staffPerformance, activeEmployees, avgRating, 
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tiempo en Cocina por Cantidad de Platos</CardTitle>
+          <CardDescription>Minutos promedio del pedido al pago de un ticket según cuántos platos incluye.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataStateWrapper status={statusFor(kitchenChart.length > 0)}>
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={kitchenChart} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                  <XAxis key="xaxis" dataKey="platos" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis key="yaxis" stroke="#6B7280" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `${val}m`} />
+                  <Tooltip key="tooltip" cursor={{ fill: '#F3F4F6' }} formatter={(val: number, _n, item: any) => [`${val} min (${item?.payload?.muestras ?? 0} tickets)`, 'Tiempo promedio']} contentStyle={{ borderRadius: '8px', border: '1px solid #E5E7EB' }} />
+                  <Bar key="bar" dataKey="minutos" name="Tiempo promedio" fill="#ea580c" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </DataStateWrapper>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -711,6 +747,7 @@ const ROLE_LABEL: Record<string, string> = {
 type UsuarioRow = { id: string; full_name: string | null; email: string | null; role: string; personal_email: string | null };
 
 function UsuariosModule() {
+  const { profile: me } = useAuth();
   const [users, setUsers] = useState<UsuarioRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ fullName: '', companyEmail: '', personalEmail: '', role: 'waiter' });
@@ -718,6 +755,7 @@ function UsuariosModule() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ inviteLink: string | null; companyEmail: string; personalEmail: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -768,6 +806,27 @@ function UsuariosModule() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch { /* ignore */ }
+  };
+
+  const handleDelete = async (u: UsuarioRow) => {
+    if (!window.confirm(`¿Eliminar a ${u.full_name || u.email}? Perderá el acceso a la plataforma.`)) return;
+    setDeletingId(u.id);
+    setError('');
+    const { data, error: fnError } = await supabase.functions.invoke('admin-delete-employee', {
+      body: { userId: u.id },
+    });
+    setDeletingId(null);
+    if (fnError) {
+      let msg = fnError.message;
+      try {
+        const ctx = await (fnError as any).context?.json?.();
+        if (ctx?.error) msg = ctx.error;
+      } catch { /* ignore */ }
+      setError(msg || 'No se pudo eliminar el usuario');
+      return;
+    }
+    if (data?.error) { setError(data.error); return; }
+    void loadUsers();
   };
 
   return (
@@ -893,6 +952,7 @@ function UsuariosModule() {
                     <TableHead>Correo de empresa</TableHead>
                     <TableHead>Rol</TableHead>
                     <TableHead>Correo personal</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -902,6 +962,20 @@ function UsuariosModule() {
                       <TableCell className="text-neutral-600">{u.email || '—'}</TableCell>
                       <TableCell><Badge variant="outline">{ROLE_LABEL[u.role] || u.role}</Badge></TableCell>
                       <TableCell className="text-neutral-500 text-sm">{u.personal_email || '—'}</TableCell>
+                      <TableCell className="text-right">
+                        {me?.id === u.id ? (
+                          <span className="text-xs text-neutral-400">Tú</span>
+                        ) : (
+                          <button
+                            onClick={() => handleDelete(u)}
+                            disabled={deletingId === u.id}
+                            title="Eliminar empleado"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-50 text-sm font-medium transition-colors"
+                          >
+                            {deletingId === u.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                          </button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -919,6 +993,271 @@ function FinancialRow({ label, value, bold }: { label: string; value: string; bo
     <div className="flex items-center justify-between">
       <span className={clsx("text-sm", bold ? "font-bold text-neutral-900" : "text-neutral-500")}>{label}</span>
       <span className={clsx(bold ? "font-bold text-neutral-900 text-lg" : "font-medium text-neutral-700")}>{value}</span>
+    </div>
+  );
+}
+
+// --- PLATOS (gestión del menú) ---
+type PlatoRow = { id: string; nombre: string; descripcion: string | null; valor_actual: number; costo: number | null; categoria_id: string | null; foto_url: string | null; estado: string | null };
+type CategoriaRow = { id: string; nombre: string };
+
+const emptyPlatoForm = { nombre: '', descripcion: '', valor_actual: '', costo: '', categoria: '', foto_url: '', estado: 'active' };
+const isAgotado = (estado: string | null) => estado === 'inactive';
+
+function PlatosModule() {
+  const [platos, setPlatos] = useState<PlatoRow[]>([]);
+  const [categorias, setCategorias] = useState<CategoriaRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ ...emptyPlatoForm });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const catById = useMemo(() => new Map(categorias.map(c => [c.id, c.nombre])), [categorias]);
+
+  const load = async () => {
+    setLoading(true);
+    const [{ data: p }, { data: c }] = await Promise.all([
+      supabase.from('plato').select('id, nombre, descripcion, valor_actual, costo, categoria_id, foto_url, estado').order('nombre', { ascending: true }),
+      supabase.from('categoria').select('id, nombre').order('nombre', { ascending: true }),
+    ]);
+    setPlatos((p as PlatoRow[]) ?? []);
+    setCategorias((c as CategoriaRow[]) ?? []);
+    setLoading(false);
+  };
+  useEffect(() => { void load(); }, []);
+
+  const openNew = () => { setEditingId(null); setForm({ ...emptyPlatoForm }); setError(''); setModalOpen(true); };
+  const openEdit = (p: PlatoRow) => {
+    setEditingId(p.id);
+    setForm({
+      nombre: p.nombre ?? '',
+      descripcion: p.descripcion ?? '',
+      valor_actual: p.valor_actual != null ? String(p.valor_actual) : '',
+      costo: p.costo != null ? String(p.costo) : '',
+      categoria: p.categoria_id ? (catById.get(p.categoria_id) ?? '') : '',
+      foto_url: p.foto_url ?? '',
+      estado: isAgotado(p.estado) ? 'inactive' : 'active',
+    });
+    setError('');
+    setModalOpen(true);
+  };
+
+  const resolveCategoriaId = async (name: string): Promise<string | null> => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const existing = categorias.find(c => c.nombre.toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing.id;
+    const { data, error: err } = await supabase.from('categoria').insert({ nombre: trimmed }).select('id, nombre').single();
+    if (err) throw err;
+    setCategorias(prev => [...prev, data as CategoriaRow]);
+    return (data as CategoriaRow).id;
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const precio = parseFloat(form.valor_actual);
+    if (!form.nombre.trim()) { setError('El nombre es obligatorio.'); return; }
+    if (!Number.isFinite(precio) || precio <= 0) { setError('El precio debe ser mayor a 0.'); return; }
+    const costo = form.costo.trim() === '' ? null : parseFloat(form.costo);
+    if (costo !== null && (!Number.isFinite(costo) || costo < 0)) { setError('El costo no es válido.'); return; }
+
+    setSaving(true);
+    try {
+      const categoria_id = await resolveCategoriaId(form.categoria);
+      const payload = {
+        nombre: form.nombre.trim(),
+        descripcion: form.descripcion.trim() || null,
+        valor_actual: precio,
+        costo,
+        categoria_id,
+        foto_url: form.foto_url.trim() || null,
+        estado: form.estado,
+      };
+      const { error: err } = editingId
+        ? await supabase.from('plato').update(payload).eq('id', editingId)
+        : await supabase.from('plato').insert(payload);
+      if (err) throw err;
+      setModalOpen(false);
+      void load();
+    } catch (err: any) {
+      setError(err?.message || 'No se pudo guardar el plato.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (p: PlatoRow) => {
+    if (!window.confirm(`¿Eliminar "${p.nombre}"?`)) return;
+    setDeletingId(p.id);
+    const { error: err } = await supabase.from('plato').delete().eq('id', p.id);
+    if (err) {
+      if (err.code === '23503') {
+        await supabase.from('plato').update({ estado: 'inactive' }).eq('id', p.id);
+        window.alert(`"${p.nombre}" tiene ventas registradas, no se puede borrar del historial. Se marcó como "Agotado".`);
+      } else {
+        window.alert('No se pudo eliminar: ' + err.message);
+      }
+    }
+    setDeletingId(null);
+    void load();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Gestión de Platos</h1>
+          <p className="text-sm text-neutral-500">Agrega, edita o elimina platos del menú (nombre, imagen, precio, categoría y costo).</p>
+        </div>
+        <button
+          onClick={openNew}
+          className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold text-sm transition-colors"
+        >
+          <Plus size={18} /> Nuevo plato
+        </button>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <DataStateWrapper status={loading ? 'loading' : platos.length > 0 ? 'success' : 'empty'} emptyMessage="Aún no hay platos. Crea el primero.">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Plato</TableHead>
+                  <TableHead>Categoría</TableHead>
+                  <TableHead className="text-right">Precio</TableHead>
+                  <TableHead className="text-right">Costo</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {platos.map(p => (
+                  <TableRow key={p.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        {p.foto_url ? (
+                          <img src={p.foto_url} alt={p.nombre} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-11 h-11 rounded-lg bg-neutral-100 flex items-center justify-center flex-shrink-0 text-neutral-400"><ImageIcon size={18} /></div>
+                        )}
+                        <span className="font-bold text-neutral-900">{p.nombre}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-neutral-600">{p.categoria_id ? (catById.get(p.categoria_id) ?? '—') : <span className="text-neutral-400">Sin categoría</span>}</TableCell>
+                    <TableCell className="text-right font-medium">{money(Number(p.valor_actual || 0))}</TableCell>
+                    <TableCell className="text-right text-neutral-500">{p.costo != null ? money(Number(p.costo)) : '—'}</TableCell>
+                    <TableCell>
+                      <Badge variant={isAgotado(p.estado) ? 'destructive' : 'success'}>{isAgotado(p.estado) ? 'Agotado' : 'Disponible'}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openEdit(p)} title="Editar" className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 transition-colors">
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => handleDelete(p)} disabled={deletingId === p.id} title="Eliminar" className="p-2 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors">
+                          {deletingId === p.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                        </button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </DataStateWrapper>
+        </CardContent>
+      </Card>
+
+      <AnimatePresence>
+        {modalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => !saving && setModalOpen(false)} className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 10 }}
+              className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg z-10 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="p-6 border-b border-neutral-200 flex justify-between items-center sticky top-0 bg-white rounded-t-2xl">
+                <h2 className="text-lg font-bold text-neutral-900">{editingId ? 'Editar plato' : 'Nuevo plato'}</h2>
+                <button onClick={() => setModalOpen(false)} className="p-2 hover:bg-neutral-100 rounded-lg"><X size={20} /></button>
+              </div>
+
+              <form onSubmit={handleSave} className="p-6 space-y-4">
+                <div className="flex gap-4">
+                  {form.foto_url ? (
+                    <img src={form.foto_url} alt="preview" className="w-20 h-20 rounded-xl object-cover border border-neutral-200 flex-shrink-0" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-xl bg-neutral-100 flex items-center justify-center text-neutral-400 flex-shrink-0"><ImageIcon size={22} /></div>
+                  )}
+                  <div className="flex-1">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">URL de la imagen</label>
+                    <input value={form.foto_url} onChange={e => setForm({ ...form, foto_url: e.target.value })} placeholder="https://..."
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Nombre</label>
+                  <input required value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} placeholder="Ej. Lomo saltado"
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Descripción</label>
+                  <textarea value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} rows={2} placeholder="Breve descripción..."
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Precio</label>
+                    <input required type="number" min="0" step="0.01" value={form.valor_actual} onChange={e => setForm({ ...form, valor_actual: e.target.value })} placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Costo <span className="text-neutral-400 normal-case">(opcional, para margen)</span></label>
+                    <input type="number" min="0" step="0.01" value={form.costo} onChange={e => setForm({ ...form, costo: e.target.value })} placeholder="0.00"
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Categoría</label>
+                    <input list="cat-datalist" value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value })} placeholder="Escribe o elige..."
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                    <datalist id="cat-datalist">
+                      {categorias.map(c => <option key={c.id} value={c.nombre} />)}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Disponibilidad</label>
+                    <select value={form.estado} onChange={e => setForm({ ...form, estado: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white">
+                      <option value="active">Disponible</option>
+                      <option value="inactive">Agotado</option>
+                    </select>
+                  </div>
+                </div>
+
+                {error && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setModalOpen(false)} className="flex-1 py-2.5 border border-neutral-300 rounded-lg font-medium text-sm hover:bg-neutral-50">Cancelar</button>
+                  <button type="submit" disabled={saving} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-neutral-900 hover:bg-neutral-700 disabled:bg-neutral-400 text-white rounded-lg font-bold text-sm transition-colors">
+                    {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                    {saving ? 'Guardando...' : editingId ? 'Guardar cambios' : 'Crear plato'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
