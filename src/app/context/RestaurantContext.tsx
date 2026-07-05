@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from './AuthContext';
 
 // --- Types ---
 
@@ -124,6 +125,7 @@ const mapFrontendStatusToDB = (status: OrderStatus): PedidoEstadoDB => {
 };
 
 export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
+  const { profile } = useAuth();
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -311,12 +313,16 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Recargar datos cuando cambia la sesión (login/logout): al montar como anónimo
+  // solo el menú es visible; tras iniciar sesión hay que releer las tablas protegidas.
   useEffect(() => {
     fetchDishes();
     fetchOrders();
     fetchReservations();
     fetchTables();
+  }, [profile?.id]);
 
+  useEffect(() => {
     // Set up realtime subscriptions
     const platosChannel = supabase
       .channel('public:plato')
@@ -573,10 +579,11 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
 
       if (error) throw error;
 
-      // Also update all detalle_pedido items to ready
+      // Also update all detalle_pedido items to ready and attribute the chef
+      // (el cocinero autenticado que marca el pedido como listo)
       await supabase
         .from('detalle_pedido')
-        .update({ estado: 'listo' })
+        .update({ estado: 'listo', ...(profile?.id ? { chef_id: profile.id } : {}) })
         .eq('pedido_id', orderId);
 
       const order = orders.find(o => o.id === orderId);
@@ -612,133 +619,22 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
     tip = 0,
     receivedAmount?: number
   ) => {
-    const order = orders.find(currentOrder => currentOrder.id === orderId);
-    if (!order) {
-      throw new Error('No se encontró la orden a procesar');
-    }
+    // Pago atómico en una sola transacción del lado del servidor (RPC).
+    const { error } = await supabase.rpc('procesar_pago_pedido', {
+      p_pedido_id: orderId,
+      p_cajero_id: profile?.id ?? cashierId,
+      p_metodo_pago: paymentMethod,
+      p_propina: tip,
+      p_monto_recibido: receivedAmount ?? null,
+    });
 
-    const now = new Date();
-    const orderTime = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt);
-    const horaCreacion = orderTime.toTimeString().slice(0, 8);
-    const horaPago = now.toTimeString().slice(0, 8);
-    const tiempoEsperaMinutos = Math.max(0, Math.round((now.getTime() - orderTime.getTime()) / 60000));
-    const total = Number((order.total + tip).toFixed(2));
-    const cambio = typeof receivedAmount === 'number' ? Number(Math.max(0, receivedAmount - total).toFixed(2)) : null;
-    const facturaId = crypto.randomUUID();
-
-    const rollbackIds: {
-      facturaId?: string;
-      ventaPlatoIds: string[];
-      ventaMetodoPagoId?: string;
-      ventaHorarioId?: string;
-    } = {
-      ventaPlatoIds: [],
-    };
-
-    try {
-      const { error: facturaError } = await supabase
-        .from('factura')
-        .insert([{
-          id: facturaId,
-          pedido_id: orderId,
-          cajero_id: cashierId,
-          metodo_pago: paymentMethod,
-          estado: 'pagada',
-          total,
-          propina: tip,
-          monto_recibido: receivedAmount ?? null,
-          cambio,
-        }]);
-
-      if (facturaError) throw facturaError;
-      rollbackIds.facturaId = facturaId;
-
-      const ventaPlatoRows = order.items.map((item) => {
-        const dish = dishes.find(currentDish => currentDish.id === item.dishId);
-        const precioUnitario = Number(dish?.price ?? 0);
-        return {
-          id: crypto.randomUUID(),
-          factura_id: facturaId,
-          plato_id: item.dishId,
-          cantidad: item.quantity,
-          precio_unitario: precioUnitario,
-          subtotal: Number((precioUnitario * item.quantity).toFixed(2)),
-        };
-      });
-
-      if (ventaPlatoRows.length > 0) {
-        const { error: ventaPlatoError } = await supabase
-          .from('venta_plato')
-          .insert(ventaPlatoRows);
-
-        if (ventaPlatoError) throw ventaPlatoError;
-        rollbackIds.ventaPlatoIds = ventaPlatoRows.map(row => row.id);
-      }
-
-      const ventaMetodoPagoId = crypto.randomUUID();
-      const { error: ventaMetodoPagoError } = await supabase
-        .from('venta_metodo_pago')
-        .insert([{
-          id: ventaMetodoPagoId,
-          factura_id: facturaId,
-          metodo_pago: paymentMethod,
-          monto: total,
-          propina: tip,
-          total,
-          cajero_id: cashierId,
-        }]);
-
-      if (ventaMetodoPagoError) throw ventaMetodoPagoError;
-      rollbackIds.ventaMetodoPagoId = ventaMetodoPagoId;
-
-      const ventaHorarioId = crypto.randomUUID();
-      const { error: ventaHorarioError } = await supabase
-        .from('venta_horario')
-        .insert([{
-          id: ventaHorarioId,
-          factura_id: facturaId,
-          hora_creacion: horaCreacion,
-          hora_pago: horaPago,
-          tiempo_espera_minutos: tiempoEsperaMinutos,
-          total,
-        }]);
-
-      if (ventaHorarioError) throw ventaHorarioError;
-      rollbackIds.ventaHorarioId = ventaHorarioId;
-
-      const { error: pedidoError } = await supabase
-        .from('pedido')
-        .update({ estado_preparacion: 'entregado' })
-        .eq('id', orderId);
-
-      if (pedidoError) throw pedidoError;
-
-      if (order.mesaId && order.mesaId !== 'takeaway') {
-        await updateTableStatus(order.mesaId, 'limpiando');
-      }
-
-      await fetchOrders();
-      await fetchTables();
-    } catch (error) {
-      if (rollbackIds.ventaHorarioId) {
-        await supabase.from('venta_horario').delete().eq('id', rollbackIds.ventaHorarioId);
-      }
-
-      if (rollbackIds.ventaMetodoPagoId) {
-        await supabase.from('venta_metodo_pago').delete().eq('id', rollbackIds.ventaMetodoPagoId);
-      }
-
-      if (rollbackIds.ventaPlatoIds.length > 0) {
-        await supabase.from('venta_plato').delete().in('id', rollbackIds.ventaPlatoIds);
-      }
-
-      if (rollbackIds.facturaId) {
-        await supabase.from('factura').delete().eq('id', rollbackIds.facturaId);
-      }
-
+    if (error) {
       console.error('Error processing payment:', error);
       throw error;
     }
+
+    await fetchOrders();
+    await fetchTables();
   };
 
   const addReservation = async (reservation: Reservation) => {

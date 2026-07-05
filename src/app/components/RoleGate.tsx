@@ -7,21 +7,26 @@ interface RoleGateProps {
   children: React.ReactNode;
 }
 
+const ROLE_ROUTE: Record<UserRole, string> = {
+  admin: '/empleado/administrador',
+  waiter: '/empleado/mesero',
+  kitchen: '/empleado/cocina',
+  cashier: '/empleado/cajero',
+};
+
 export default function RoleGate({ allow, children }: RoleGateProps) {
-  const { profile, loading, localProfileActive } = useAuth();
+  const { profile, loading } = useAuth();
 
   if (loading) return null;
 
-  if (localProfileActive) {
-    return <>{children}</>;
-  }
-
+  // Sin sesión → al login
   if (!profile) {
     return <Navigate to="/login" replace />;
   }
 
+  // Con sesión pero sin permiso para esta vista → a su propio panel
   if (!allow.includes(profile.role)) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={ROLE_ROUTE[profile.role]} replace />;
   }
 
   return <>{children}</>;

@@ -82,7 +82,7 @@ function PaymentMethodSelector({
 // ─── Main view ────────────────────────────────────────────────────────────────
 
 export default function CashierView() {
-  const { orders, tables, dishes, updateTableStatus, fetchOrders } = useRestaurant();
+  const { orders, tables, dishes, fetchOrders } = useRestaurant();
   const { profile } = useAuth();
 
   const [todayStats,        setTodayStats]        = useState<TodayStats>({ totalSales: 0, completedOrders: 0, totalOrders: 0 });
@@ -127,88 +127,7 @@ export default function CashierView() {
   const getTableNumber = (tableId: string) => tables.find(t => t.id === tableId)?.number ?? 'N/A';
   const getDishName    = (dishId: string)  => dishes.find(d => d.id === dishId)?.name ?? 'Desconocido';
 
-  // ── Shared: build rollback helper ─────────────────────────────────────────
-
-  const doRollback = async (ids: { facturaIds: string[]; vpIds: string[]; vmpIds: string[]; vhIds: string[] }) => {
-    // Run rollbacks in parallel for speed
-    await Promise.allSettled([
-      ...ids.vhIds.map(id  => supabase.from('venta_horario').delete().eq('id', id)),
-      ...ids.vmpIds.map(id => supabase.from('venta_metodo_pago').delete().eq('id', id)),
-      ...ids.vpIds.map(id  => supabase.from('venta_plato').delete().eq('id', id)),
-      ...ids.facturaIds.map(id => supabase.from('factura').delete().eq('id', id)),
-    ]);
-  };
-
-  // ── Shared: create one factura + related records ───────────────────────────
-
-  const insertFactura = async (params: {
-    orderId: string;
-    items: Array<{ dishId: string; quantity: number }>;
-    method: PaymentMethod;
-    total: number;
-    montoRecibido?: number;
-    horaCreacion: string;
-    horaPago: string;
-    tiempoEspera: number;
-    rollback: { facturaIds: string[]; vpIds: string[]; vmpIds: string[]; vhIds: string[] };
-  }) => {
-    const { orderId, items, method, total, montoRecibido, horaCreacion, horaPago, tiempoEspera, rollback } = params;
-    const cambio = montoRecibido != null ? Number(Math.max(0, montoRecibido - total).toFixed(2)) : null;
-
-    const facturaId = crypto.randomUUID();
-    const { error: fErr } = await supabase.from('factura').insert([{
-      id: facturaId, pedido_id: orderId, cajero_id: profile!.id,
-      metodo_pago: method, estado: 'pagada', total: Number(total.toFixed(2)), propina: 0,
-      monto_recibido: montoRecibido ?? null, cambio,
-    }]);
-    if (fErr) throw new Error(`factura: ${fErr.message}`);
-    rollback.facturaIds.push(facturaId);
-
-    const vpRows = items.map(item => {
-      const price = Number(dishes.find(d => d.id === item.dishId)?.price ?? 0);
-      return {
-        id: crypto.randomUUID(), factura_id: facturaId, plato_id: item.dishId,
-        cantidad: item.quantity, precio_unitario: price,
-        subtotal: Number((price * item.quantity).toFixed(2)),
-      };
-    });
-    if (vpRows.length > 0) {
-      const { error: vpErr } = await supabase.from('venta_plato').insert(vpRows);
-      if (vpErr) throw new Error(`venta_plato: ${vpErr.message}`);
-      rollback.vpIds.push(...vpRows.map(r => r.id));
-    }
-
-    const vmpId = crypto.randomUUID();
-    const { error: vmpErr } = await supabase.from('venta_metodo_pago').insert([{
-      id: vmpId, factura_id: facturaId, metodo_pago: method,
-      monto: Number(total.toFixed(2)), propina: 0, total: Number(total.toFixed(2)),
-      cajero_id: profile!.id,
-    }]);
-    if (vmpErr) throw new Error(`venta_metodo_pago: ${vmpErr.message}`);
-    rollback.vmpIds.push(vmpId);
-
-    const vhId = crypto.randomUUID();
-    const { error: vhErr } = await supabase.from('venta_horario').insert([{
-      id: vhId, factura_id: facturaId, hora_creacion: horaCreacion,
-      hora_pago: horaPago, tiempo_espera_minutos: tiempoEspera, total: Number(total.toFixed(2)),
-    }]);
-    if (vhErr) throw new Error(`venta_horario: ${vhErr.message}`);
-    rollback.vhIds.push(vhId);
-  };
-
-  // ── Time helpers ───────────────────────────────────────────────────────────
-
-  const getTimeParams = (order: Order) => {
-    const now       = new Date();
-    const orderTime = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt);
-    return {
-      horaCreacion:        orderTime.toTimeString().slice(0, 8),
-      horaPago:            now.toTimeString().slice(0, 8),
-      tiempoEsperaMinutos: Math.max(0, Math.round((now.getTime() - orderTime.getTime()) / 60000)),
-    };
-  };
-
-  // ── Single payment ─────────────────────────────────────────────────────────
+  // ── Single payment: RPC atómico (factura + venta_plato + venta_metodo_pago + venta_horario) ──
 
   const handleProcessPayment = async (
     orderId: string,
@@ -220,81 +139,59 @@ export default function CashierView() {
     if (!order) { alert('No se encontró la orden'); return; }
 
     setProcessingOrderId(orderId);
-    const rollback = { facturaIds: [] as string[], vpIds: [] as string[], vmpIds: [] as string[], vhIds: [] as string[] };
-    const { horaCreacion, horaPago, tiempoEsperaMinutos } = getTimeParams(order);
+    const { error } = await supabase.rpc('procesar_pago_pedido', {
+      p_pedido_id: orderId,
+      p_cajero_id: profile.id,
+      p_metodo_pago: method,
+      p_propina: 0,
+      p_monto_recibido: receivedAmount ?? null,
+    });
+    setProcessingOrderId(null);
 
-    // ── CRITICAL PATH: only rollback errors from here ──────────────────────
-    try {
-      await insertFactura({
-        orderId, items: order.items, method, total: order.total,
-        montoRecibido: receivedAmount,
-        horaCreacion, horaPago, tiempoEspera: tiempoEsperaMinutos,
-        rollback,
-      });
-
-      const { error: pedidoErr } = await supabase
-        .from('pedido').update({ estado_preparacion: 'entregado' }).eq('id', orderId);
-      if (pedidoErr) throw new Error(`pedido: ${pedidoErr.message}`);
-
-      if (order.mesaId && order.mesaId !== 'takeaway') {
-        updateTableStatus(order.mesaId, 'limpiando');
-      }
-    } catch (error) {
-      console.error('[handleProcessPayment] critical error:', error);
-      await doRollback(rollback);
-      setProcessingOrderId(null);
-      alert('No se pudo procesar el pago: ' + ((error as any)?.message ?? String(error)));
+    if (error) {
+      console.error('[handleProcessPayment] error:', error);
+      alert('No se pudo procesar el pago: ' + error.message);
       return;
     }
 
-    // ── NON-CRITICAL PATH: never rollback from here ────────────────────────
-    setProcessingOrderId(null);
     setPaymentModalOrder(null);
     setPaidOrderIds(prev => new Set([...prev, orderId]));
     setRatingOrderId(orderId);
     try { await Promise.all([fetchTodayStats(), fetchOrders()]); } catch (e) { console.error('Refresh failed:', e); }
   };
 
-  // ── Split payment ──────────────────────────────────────────────────────────
+  // ── Split payment: RPC atómico, una factura por parte ────────────────────────
 
   const handleSplitPayment = async (orderId: string, parts: SplitPartResult[]) => {
     if (!profile) { alert('No se encontró el perfil del cajero'); return; }
     const order = orders.find(o => o.id === orderId);
     if (!order) { alert('No se encontró la orden'); return; }
 
-    const rollback = { facturaIds: [] as string[], vpIds: [] as string[], vmpIds: [] as string[], vhIds: [] as string[] };
-    const { horaCreacion, horaPago, tiempoEsperaMinutos } = getTimeParams(order);
-    const activeParts = parts.filter(p => p.items.length > 0);
+    const p_partes = parts
+      .filter(p => p.items.length > 0)
+      .map(part => ({
+        metodo_pago: part.paymentMethod,
+        propina: 0,
+        monto_recibido: part.montoRecibido ?? null,
+        items: part.items.map(item => ({
+          plato_id: item.dishId,
+          cantidad: item.quantity,
+          precio_unitario: Number(dishes.find(d => d.id === item.dishId)?.price ?? 0),
+        })),
+      }));
 
-    // ── CRITICAL PATH ──────────────────────────────────────────────────────
-    try {
-      for (const part of activeParts) {
-        const partTotal = part.items.reduce((acc, item) =>
-          acc + Number(dishes.find(d => d.id === item.dishId)?.price ?? 0) * item.quantity, 0);
+    const { error } = await supabase.rpc('procesar_pago_dividido', {
+      p_pedido_id: orderId,
+      p_cajero_id: profile.id,
+      p_partes,
+    });
 
-        await insertFactura({
-          orderId, items: part.items, method: part.paymentMethod,
-          total: partTotal, montoRecibido: part.montoRecibido,
-          horaCreacion, horaPago, tiempoEspera: tiempoEsperaMinutos,
-          rollback,
-        });
-      }
-
-      const { error: pedidoErr } = await supabase
-        .from('pedido').update({ estado_preparacion: 'entregado' }).eq('id', orderId);
-      if (pedidoErr) throw new Error(`pedido: ${pedidoErr.message}`);
-
-      if (order.mesaId && order.mesaId !== 'takeaway') {
-        updateTableStatus(order.mesaId, 'limpiando');
-      }
-    } catch (error) {
-      console.error('[handleSplitPayment] critical error:', error);
-      await doRollback(rollback);
-      alert('Error al separar la cuenta: ' + ((error as any)?.message ?? String(error)));
+    if (error) {
+      console.error('[handleSplitPayment] error:', error);
+      alert('Error al separar la cuenta: ' + error.message);
       return;
     }
 
-    // ── NON-CRITICAL PATH ──────────────────────────────────────────────────
     setSplitModalOrder(null);
     setPaidOrderIds(prev => new Set([...prev, orderId]));
     setRatingOrderId(orderId);

@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function EmployeeLayout() {
   const navigate = useNavigate();
-  const { profile, loading, clearLocalProfile } = useAuth();
+  const { profile, loading, signOut } = useAuth();
   const employeeType = profile?.role ?? null;
   const employeeName = profile?.full_name ?? 'Empleado';
 
@@ -16,8 +16,8 @@ export default function EmployeeLayout() {
     }
   }, [employeeType, loading, navigate]);
 
-  const handleLogout = () => {
-    clearLocalProfile();
+  const handleLogout = async () => {
+    await signOut();
     navigate('/login', { replace: true });
   };
 

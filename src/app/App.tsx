@@ -7,6 +7,7 @@ import EmployeeLayout from './components/EmployeeLayout';
 import RoleGate from './components/RoleGate';
 import ClientView from './pages/ClientView';
 import LoginView from './pages/LoginView';
+import SetPasswordView from './pages/SetPasswordView';
 import WaiterView from './pages/WaiterView';
 import KitchenView from './pages/KitchenView';
 import AdminView from './pages/AdminView';
@@ -23,6 +24,10 @@ const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginView />
+  },
+  {
+    path: "/set-password",
+    element: <SetPasswordView />
   },
   {
     path: "/empleado",

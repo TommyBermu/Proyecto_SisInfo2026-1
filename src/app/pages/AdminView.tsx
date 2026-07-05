@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   BarChart3, History, Users, DollarSign, CalendarDays,
   Search, Star, Banknote, LayoutDashboard, Utensils,
-  Clock, TrendingDown, CheckCircle2, UserCheck, CalendarClock
+  Clock, TrendingDown, CheckCircle2, UserCheck, CalendarClock,
+  UserPlus, Copy, Mail, ShieldCheck, Loader2, Link2
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -30,7 +31,7 @@ const paymentLabel = (m: string) => PAYMENT_LABELS[m] || m || 'Otro';
 const money = (n: number) => `$${n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function AdminView() {
-  const [activeTab, setActiveTab] = useState<'sales' | 'audit' | 'staff' | 'costs' | 'reservas'>('sales');
+  const [activeTab, setActiveTab] = useState<'sales' | 'audit' | 'staff' | 'costs' | 'reservas' | 'usuarios'>('sales');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -278,6 +279,7 @@ export default function AdminView() {
     { id: 'staff', label: 'Rendimiento (KPIs)', icon: <Users size={20} /> },
     { id: 'costs', label: 'Costos y Rentabilidad', icon: <DollarSign size={20} /> },
     { id: 'reservas', label: 'Reservas', icon: <CalendarDays size={20} /> },
+    { id: 'usuarios', label: 'Usuarios', icon: <UserPlus size={20} /> },
   ] as const;
 
   return (
@@ -321,6 +323,7 @@ export default function AdminView() {
             {activeTab === 'staff' && <StaffModule statusFor={statusFor} staffPerformance={staffPerformance} activeEmployees={activeEmployees} avgRating={avgRating} avgTurnaround={avgTurnaround} />}
             {activeTab === 'costs' && <CostsModule statusFor={statusFor} costsData={costsData} />}
             {activeTab === 'reservas' && <ReservasModule statusFor={statusFor} reservations={reservations} />}
+            {activeTab === 'usuarios' && <UsuariosModule />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -686,6 +689,224 @@ function CostsModule({ statusFor, costsData }: { statusFor: (b: boolean) => Data
                 <FinancialRow label="Utilidad estimada" value={money(costsData.sales - costsData.cogs - costsData.fixed - costsData.variable)} bold />
               </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// --- USUARIOS ---
+const ROLE_OPTIONS = [
+  { value: 'waiter', label: 'Mesero' },
+  { value: 'kitchen', label: 'Cocinero' },
+  { value: 'cashier', label: 'Cajero' },
+  { value: 'admin', label: 'Administrador' },
+] as const;
+
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Administrador', waiter: 'Mesero', kitchen: 'Cocinero', cashier: 'Cajero',
+};
+
+type UsuarioRow = { id: string; full_name: string | null; email: string | null; role: string; personal_email: string | null };
+
+function UsuariosModule() {
+  const [users, setUsers] = useState<UsuarioRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ fullName: '', companyEmail: '', personalEmail: '', role: 'waiter' });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ inviteLink: string | null; companyEmail: string; personalEmail: string | null } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const loadUsers = async () => {
+    setLoading(true);
+    const { data, error: err } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, role, personal_email')
+      .order('full_name', { ascending: true });
+    if (err) console.error('Error cargando usuarios:', err);
+    setUsers((data as UsuarioRow[]) ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => { void loadUsers(); }, []);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setResult(null);
+    setCopied(false);
+    setSubmitting(true);
+
+    const { data, error: fnError } = await supabase.functions.invoke('admin-create-employee', {
+      body: { ...form, redirectTo: `${window.location.origin}/set-password` },
+    });
+
+    setSubmitting(false);
+
+    if (fnError) {
+      let msg = fnError.message;
+      try {
+        const ctx = await (fnError as any).context?.json?.();
+        if (ctx?.error) msg = ctx.error;
+      } catch { /* ignore */ }
+      setError(msg || 'No se pudo crear el usuario');
+      return;
+    }
+    if (data?.error) { setError(data.error); return; }
+
+    setResult({ inviteLink: data.inviteLink ?? null, companyEmail: data.companyEmail, personalEmail: data.personalEmail });
+    setForm({ fullName: '', companyEmail: '', personalEmail: '', role: 'waiter' });
+    void loadUsers();
+  };
+
+  const copyLink = async () => {
+    if (!result?.inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(result.inviteLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Gestión de Usuarios</h1>
+          <p className="text-sm text-neutral-500">
+            Crea cuentas de empleado con su correo de empresa. Se genera una invitación para que
+            el empleado establezca su contraseña; envíasela a su correo personal.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Formulario de creación */}
+        <Card className="lg:col-span-1">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><UserPlus size={18} /> Nuevo empleado</CardTitle>
+            <CardDescription>El empleado iniciará sesión con el correo de empresa.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Nombre completo</label>
+                <input
+                  required
+                  value={form.fullName}
+                  onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+                  placeholder="Ej. Ana Ramírez"
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Correo de empresa (login)</label>
+                <div className="relative">
+                  <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={15} />
+                  <input
+                    required
+                    type="email"
+                    value={form.companyEmail}
+                    onChange={(e) => setForm({ ...form, companyEmail: e.target.value })}
+                    placeholder="ana@empresa.com"
+                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Correo personal (recibe la invitación)</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={15} />
+                  <input
+                    type="email"
+                    value={form.personalEmail}
+                    onChange={(e) => setForm({ ...form, personalEmail: e.target.value })}
+                    placeholder="ana.personal@gmail.com"
+                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Rol</label>
+                <select
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                >
+                  {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
+
+              {error && (
+                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-600/50 text-white rounded-lg font-bold text-sm transition-colors"
+              >
+                {submitting ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+                {submitting ? 'Creando...' : 'Crear e invitar'}
+              </button>
+            </form>
+
+            {result && (
+              <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-green-800 font-semibold text-sm">
+                  <CheckCircle2 size={16} /> Usuario creado
+                </div>
+                <p className="text-xs text-neutral-600">
+                  Login: <span className="font-medium">{result.companyEmail}</span>
+                  {result.personalEmail && <> · Invitación para: <span className="font-medium">{result.personalEmail}</span></>}
+                </p>
+                {result.inviteLink && (
+                  <div>
+                    <p className="text-xs text-neutral-600 mb-1 flex items-center gap-1"><Link2 size={12} /> Enlace de invitación (envíaselo al correo personal):</p>
+                    <div className="flex gap-2">
+                      <input readOnly value={result.inviteLink} className="flex-1 px-2 py-1.5 rounded-lg border border-neutral-300 text-xs bg-white text-neutral-500 truncate" />
+                      <button onClick={copyLink} type="button" className="px-3 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-medium flex items-center gap-1 hover:bg-neutral-700">
+                        <Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Lista de usuarios */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-4">
+            <CardTitle>Empleados con cuenta</CardTitle>
+            <CardDescription>Usuarios que pueden iniciar sesión en la plataforma.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <DataStateWrapper status={loading ? 'loading' : users.length > 0 ? 'success' : 'empty'} emptyMessage="Aún no hay usuarios con cuenta.">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Correo de empresa</TableHead>
+                    <TableHead>Rol</TableHead>
+                    <TableHead>Correo personal</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map(u => (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-bold text-neutral-900">{u.full_name || '—'}</TableCell>
+                      <TableCell className="text-neutral-600">{u.email || '—'}</TableCell>
+                      <TableCell><Badge variant="outline">{ROLE_LABEL[u.role] || u.role}</Badge></TableCell>
+                      <TableCell className="text-neutral-500 text-sm">{u.personal_email || '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </DataStateWrapper>
           </CardContent>
         </Card>
       </div>
