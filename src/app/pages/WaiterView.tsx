@@ -40,9 +40,33 @@ export default function WaiterView() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-neutral-50 overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-64px)] bg-neutral-50 overflow-hidden">
+      {/* Navegación móvil */}
+      <nav className="lg:hidden flex-shrink-0 bg-white border-b border-neutral-200 flex gap-1 overflow-x-auto px-3 py-2 shadow-sm">
+        {([
+          { id: 'new-order' as TabType, label: 'Pedido', icon: <Plus size={18} />, badge: 0 },
+          { id: 'tables' as TabType, label: 'Mesas', icon: <ClipboardList size={18} />, badge: unviewedCompletedCount },
+          { id: 'reservations' as TabType, label: 'Reservas', icon: <Calendar size={18} />, badge: 0 },
+        ]).map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            className={clsx(
+              "relative flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
+              activeTab === tab.id ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"
+            )}
+          >
+            {tab.icon}
+            {tab.label}
+            {tab.badge > 0 && (
+              <span className="bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{tab.badge}</span>
+            )}
+          </button>
+        ))}
+      </nav>
+
       <aside className={clsx(
-        "bg-white border-r border-neutral-200 flex flex-col shadow-sm transition-all duration-300",
+        "hidden lg:flex bg-white border-r border-neutral-200 flex-col shadow-sm transition-all duration-300",
         sidebarCollapsed ? "w-16" : "w-64"
       )}>
         <div className="p-6 border-b border-neutral-200 flex items-center justify-between">
@@ -87,7 +111,7 @@ export default function WaiterView() {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden min-h-0">
         {activeTab === 'new-order' && <NewOrderView />}
         {activeTab === 'tables' && (
           <TablesView
@@ -250,10 +274,10 @@ function NewOrderView() {
   };
 
   return (
-    <div className="h-full flex flex-col p-6 overflow-hidden">
+    <div className="h-full flex flex-col p-4 sm:p-6 overflow-y-auto lg:overflow-hidden">
       {/* Header */}
       <div className="mb-6 bg-white rounded-lg p-4 shadow-sm border border-neutral-200">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-3">
           <div className="flex items-center gap-3">
             <ShoppingCart className="text-neutral-700" size={24} />
             <div>
@@ -262,9 +286,9 @@ function NewOrderView() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex flex-col gap-2 items-end">
+            <div className="flex flex-col gap-2 lg:items-end w-full lg:w-auto">
               <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Mesa activa</span>
-              <div className="flex flex-wrap gap-2 max-w-xl justify-end">
+              <div className="flex flex-wrap gap-2 lg:max-w-xl lg:justify-end">
                 {tables.map(table => {
                   const isAvailable = table.status === 'disponible';
                   const isSelected = selectedTable === table.id;
@@ -302,9 +326,9 @@ function NewOrderView() {
       </div>
 
       {/* Main Panel */}
-      <div className="flex-1 grid grid-cols-2 gap-6 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:overflow-hidden min-h-0">
         {/* Left: Menu Search */}
-        <div className="bg-white rounded-lg shadow-sm border border-neutral-200 flex flex-col overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-neutral-200 flex flex-col overflow-hidden min-h-[45vh] lg:min-h-0">
           <div className="p-4 border-b border-neutral-200">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={20} />
@@ -343,7 +367,7 @@ function NewOrderView() {
         </div>
 
         {/* Right: Cart */}
-        <div className="bg-white rounded-lg shadow-sm border border-neutral-200 flex flex-col overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-neutral-200 flex flex-col overflow-hidden min-h-[40vh] lg:min-h-0">
           <div className="p-4 border-b border-neutral-200">
             <h3 className="font-bold text-lg text-neutral-900">Items del Pedido</h3>
             <p className="text-sm text-neutral-500">{cartItems.length} items agregados</p>
@@ -505,9 +529,9 @@ function TablesView({
   };
 
   return (
-    <div className="h-full flex overflow-hidden">
+    <div className="h-full flex flex-col lg:flex-row overflow-hidden">
       {/* Tables List */}
-      <div className="w-96 bg-white border-r border-neutral-200 flex flex-col overflow-hidden">
+      <div className="w-full lg:w-96 flex-shrink-0 bg-white border-b lg:border-r border-neutral-200 flex flex-col overflow-hidden max-h-[45vh] lg:max-h-none">
         <div className="p-6 border-b border-neutral-200">
           <h2 className="text-xl font-bold text-neutral-900">Mesas Activas</h2>
           <p className="text-sm text-neutral-500 mt-1">{tablesWithOrders.length} mesas con pedidos</p>
@@ -747,7 +771,7 @@ function AddItemsModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 grid grid-cols-2 gap-6 p-6 overflow-hidden">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 p-4 sm:p-6 overflow-y-auto lg:overflow-hidden min-h-0">
           {/* Left: Menu Search */}
           <div className="bg-neutral-50 rounded-lg border border-neutral-200 flex flex-col overflow-hidden">
             <div className="p-4 border-b border-neutral-200">
@@ -940,9 +964,9 @@ function ReservationsView() {
   });
 
   return (
-    <div className="h-full flex overflow-hidden">
+    <div className="h-full flex flex-col lg:flex-row overflow-hidden">
       {/* Reservations List */}
-      <div className="w-96 bg-white border-r border-neutral-200 flex flex-col overflow-hidden">
+      <div className="w-full lg:w-96 flex-shrink-0 bg-white border-b lg:border-r border-neutral-200 flex flex-col overflow-hidden max-h-[45vh] lg:max-h-none">
         <div className="p-6 border-b border-neutral-200">
           <h2 className="text-xl font-bold text-neutral-900">Todas las Reservas</h2>
           <p className="text-sm text-neutral-500 mt-1">
@@ -1014,7 +1038,7 @@ function ReservationsView() {
                   <p className="text-xl font-bold text-neutral-900 mt-1">{selectedReservation.name}</p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-3 gap-4 sm:gap-6">
                   <div>
                     <label className="text-sm text-neutral-500 font-medium flex items-center gap-2">
                       <Calendar size={16} />
@@ -1038,14 +1062,14 @@ function ReservationsView() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                   <div>
                     <label className="text-sm text-neutral-500 font-medium">Teléfono</label>
                     <p className="text-lg font-semibold text-neutral-900 mt-1">{selectedReservation.phone || 'N/A'}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="text-sm text-neutral-500 font-medium">Correo Electrónico</label>
-                    <p className="text-lg font-semibold text-neutral-900 mt-1">{selectedReservation.email || 'N/A'}</p>
+                    <p className="text-lg font-semibold text-neutral-900 mt-1 truncate">{selectedReservation.email || 'N/A'}</p>
                   </div>
                 </div>
 

@@ -29,7 +29,10 @@ interface SplitPartResult {
   paymentMethod: PaymentMethod;
   items: Array<{ dishId: string; quantity: number; notes?: string }>;
   montoRecibido?: number;
+  propina: number;
 }
+
+const TIP_PERCENTAGES = [0, 10, 15, 20] as const;
 
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   cash:     'Efectivo',
@@ -133,6 +136,7 @@ export default function CashierView() {
     orderId: string,
     method: PaymentMethod,
     receivedAmount?: number,
+    tip = 0,
   ) => {
     if (!profile) { alert('No se encontró el perfil del cajero'); return; }
     const order = orders.find(o => o.id === orderId);
@@ -143,7 +147,7 @@ export default function CashierView() {
       p_pedido_id: orderId,
       p_cajero_id: profile.id,
       p_metodo_pago: method,
-      p_propina: 0,
+      p_propina: tip,
       p_monto_recibido: receivedAmount ?? null,
     });
     setProcessingOrderId(null);
@@ -171,7 +175,7 @@ export default function CashierView() {
       .filter(p => p.items.length > 0)
       .map(part => ({
         metodo_pago: part.paymentMethod,
-        propina: 0,
+        propina: part.propina,
         monto_recibido: part.montoRecibido ?? null,
         items: part.items.map(item => ({
           plato_id: item.dishId,
@@ -234,16 +238,16 @@ export default function CashierView() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-[calc(100vh-64px)] overflow-hidden bg-neutral-50 p-6">
-      <div className="max-w-7xl mx-auto h-full flex flex-col">
+    <div className="min-h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] lg:overflow-hidden bg-neutral-50 p-4 sm:p-6">
+      <div className="max-w-7xl mx-auto lg:h-full flex flex-col">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-neutral-900 mb-2">Caja</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">Caja</h1>
           <p className="text-neutral-600">Gestión de pagos y cierre de cuentas</p>
         </div>
 
-        <div className="flex-1 grid grid-cols-3 gap-6 overflow-hidden">
+        <div className="lg:flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 lg:overflow-hidden">
           {/* Stats */}
-          <div className="col-span-1 space-y-6 overflow-y-auto">
+          <div className="lg:col-span-1 space-y-6 lg:overflow-y-auto">
             <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
               <div className="flex items-center gap-3 mb-2">
                 <DollarSign size={24} />
@@ -279,7 +283,7 @@ export default function CashierView() {
           </div>
 
           {/* Orders */}
-          <div className="col-span-2 bg-white rounded-xl shadow-md overflow-hidden flex flex-col">
+          <div className="lg:col-span-2 bg-white rounded-xl shadow-md overflow-hidden flex flex-col min-h-[50vh] lg:min-h-0">
             <div className="p-6 border-b border-neutral-200">
               <h2 className="text-xl font-bold text-neutral-900">Cuentas por Cobrar</h2>
               <p className="text-sm text-neutral-600 mt-1">{pendingPaymentOrders.length} órdenes pendientes</p>
@@ -352,8 +356,8 @@ export default function CashierView() {
             tables={tables}
             processing={processingOrderId === paymentModalOrder.id}
             onClose={() => setPaymentModalOrder(null)}
-            onConfirm={(method, receivedAmount) =>
-              void handleProcessPayment(paymentModalOrder.id, method, receivedAmount)
+            onConfirm={(method, receivedAmount, tip) =>
+              void handleProcessPayment(paymentModalOrder.id, method, receivedAmount, tip)
             }
           />
         )}
@@ -383,6 +387,57 @@ export default function CashierView() {
   );
 }
 
+// ─── TipSelector ──────────────────────────────────────────────────────────────
+
+function parseMoneyInput(raw: string): number {
+  return parseFloat(raw.replace(/\./g, '').replace(',', '.')) || 0;
+}
+
+function TipSelector({
+  subtotal, tipInput, onChange,
+}: {
+  subtotal: number;
+  tipInput: string;
+  onChange: (value: string) => void;
+}) {
+  const tipNum = parseMoneyInput(tipInput);
+  const activePct = TIP_PERCENTAGES.find(pct => Math.round(subtotal * pct / 100) === Math.round(tipNum));
+
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-widest text-neutral-400 mb-3">Propina</p>
+      <div className="flex gap-2 mb-3">
+        {TIP_PERCENTAGES.map(pct => (
+          <button
+            key={pct}
+            type="button"
+            onClick={() => onChange(pct === 0 ? '' : String(Math.round(subtotal * pct / 100)))}
+            className={clsx(
+              'flex-1 py-2 rounded-xl border-2 text-xs font-semibold transition-all',
+              activePct === pct
+                ? 'border-neutral-900 bg-neutral-900 text-white shadow-md'
+                : 'border-neutral-200 text-neutral-600 hover:border-neutral-400 hover:bg-neutral-50'
+            )}
+          >
+            {pct === 0 ? 'Sin propina' : `${pct}%`}
+          </button>
+        ))}
+      </div>
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-bold">$</span>
+        <input
+          type="number"
+          min={0}
+          placeholder="Otro monto"
+          value={tipInput}
+          onChange={e => onChange(e.target.value)}
+          className="w-full pl-8 pr-4 py-2.5 border-2 border-neutral-200 rounded-xl text-sm font-bold focus:outline-none focus:border-neutral-900 transition-colors"
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── PaymentModal ─────────────────────────────────────────────────────────────
 
 function PaymentModal({
@@ -393,23 +448,26 @@ function PaymentModal({
   tables: any[];
   processing: boolean;
   onClose: () => void;
-  onConfirm: (method: PaymentMethod, receivedAmount?: number) => void;
+  onConfirm: (method: PaymentMethod, receivedAmount: number | undefined, tip: number) => void;
 }) {
   const [method,          setMethod]          = useState<PaymentMethod>('cash');
   const [receivedInput,   setReceivedInput]   = useState('');
+  const [tipInput,        setTipInput]        = useState('');
   const [nequiNumber,     setNequiNumber]     = useState(() => localStorage.getItem(NEQUI_LS_KEY) ?? '');
   const tableNum = tables.find(t => t.id === order.tableId)?.number ?? 'N/A';
 
-  const total         = order.total;
-  const receivedNum   = parseFloat(receivedInput.replace(/\./g, '').replace(',', '.')) || 0;
-  const vuelto        = receivedNum - total;
-  const cashReady     = receivedNum >= total;
+  const subtotal      = order.total;
+  const tipNum        = parseMoneyInput(tipInput);
+  const grandTotal    = subtotal + tipNum;
+  const receivedNum   = parseMoneyInput(receivedInput);
+  const vuelto        = receivedNum - grandTotal;
+  const cashReady     = receivedNum >= grandTotal;
 
   const handleConfirm = () => {
     if (method === 'transfer' && nequiNumber.trim()) {
       localStorage.setItem(NEQUI_LS_KEY, nequiNumber.trim());
     }
-    onConfirm(method, method === 'cash' ? receivedNum : undefined);
+    onConfirm(method, method === 'cash' ? receivedNum : undefined, tipNum);
   };
 
   const canConfirm = method === 'cash' ? cashReady : true;
@@ -428,7 +486,7 @@ function PaymentModal({
         <div className="p-6 border-b border-neutral-200 flex justify-between items-start">
           <div>
             <h2 className="text-xl font-bold text-neutral-900">Cobrar Mesa {tableNum}</h2>
-            <p className="text-sm text-neutral-500 mt-0.5">Total: {fmt(total)}</p>
+            <p className="text-sm text-neutral-500 mt-0.5">Total a cobrar: {fmt(grandTotal)}</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-lg transition-colors">
             <X size={20} />
@@ -447,10 +505,20 @@ function PaymentModal({
                 </div>
               );
             })}
-            <div className="border-t border-neutral-200 pt-2 mt-2 flex justify-between font-bold text-neutral-900">
-              <span>Total</span><span>{fmt(total)}</span>
+            <div className="border-t border-neutral-200 pt-2 mt-2 flex justify-between text-neutral-600">
+              <span>Subtotal</span><span>{fmt(subtotal)}</span>
+            </div>
+            {tipNum > 0 && (
+              <div className="flex justify-between text-neutral-600">
+                <span>Propina</span><span>{fmt(tipNum)}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-bold text-neutral-900 pt-1">
+              <span>Total</span><span>{fmt(grandTotal)}</span>
             </div>
           </div>
+
+          <TipSelector subtotal={subtotal} tipInput={tipInput} onChange={setTipInput} />
 
           {/* Method selector */}
           <div>
@@ -500,7 +568,7 @@ function PaymentModal({
                 <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-4">
                   <CreditCard className="text-blue-600 flex-shrink-0" size={24} />
                   <div>
-                    <p className="text-sm font-bold text-blue-900">Cobra {fmt(total)} en el datafono</p>
+                    <p className="text-sm font-bold text-blue-900">Cobra {fmt(grandTotal)} en el datafono</p>
                     <p className="text-xs text-blue-600 mt-0.5">Confirma cuando el terminal apruebe el pago</p>
                   </div>
                 </div>
@@ -539,7 +607,7 @@ function PaymentModal({
                 <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-xl px-4 py-4">
                   <Smartphone className="text-purple-600 flex-shrink-0" size={24} />
                   <div>
-                    <p className="text-sm font-bold text-purple-900">El cliente transfiere {fmt(total)}</p>
+                    <p className="text-sm font-bold text-purple-900">El cliente transfiere {fmt(grandTotal)}</p>
                     <p className="text-xs text-purple-600 mt-0.5">Confirma cuando veas el dinero en tu app</p>
                   </div>
                 </div>
@@ -581,6 +649,7 @@ function PaymentModal({
 interface PartState {
   method:        PaymentMethod;
   receivedInput: string;
+  tipInput:      string;
 }
 
 function SplitBillModal({
@@ -614,7 +683,7 @@ function SplitBillModal({
   );
 
   const [partStates, setPartStates] = useState<PartState[]>(
-    Array.from({ length: maxParts }, () => ({ method: 'cash' as PaymentMethod, receivedInput: '' }))
+    Array.from({ length: maxParts }, () => ({ method: 'cash' as PaymentMethod, receivedInput: '', tipInput: '' }))
   );
 
   // Unassign items outside range when numParts shrinks
@@ -641,13 +710,15 @@ function SplitBillModal({
   const getPartUnits = (i: number) => expandedUnits.filter(u => assignments[u.unitId] === i);
   const getPartTotal = (i: number) =>
     getPartUnits(i).reduce((acc, u) => acc + Number(dishes.find(d => d.id === u.dishId)?.price ?? 0), 0);
+  const getPartTip = (i: number) => parseMoneyInput(partStates[i].tipInput);
+  const getPartGrandTotal = (i: number) => getPartTotal(i) + getPartTip(i);
 
-  // Check if all cash parts have sufficient received amount
+  // Check if all cash parts have sufficient received amount (incluyendo propina)
   const cashPartsReady = Array.from({ length: numParts }, (_, i) => {
     const s = partStates[i];
     if (s.method !== 'cash') return true;
-    const received = parseFloat(s.receivedInput.replace(/\./g, '').replace(',', '.')) || 0;
-    return received >= getPartTotal(i);
+    const received = parseMoneyInput(s.receivedInput);
+    return received >= getPartGrandTotal(i);
   }).every(Boolean);
 
   const buildParts = (): SplitPartResult[] =>
@@ -661,10 +732,8 @@ function SplitBillModal({
         else grouped.set(key, { dishId: u.dishId, quantity: 1, notes: u.notes });
       });
       const s        = partStates[i];
-      const received = s.method === 'cash'
-        ? parseFloat(s.receivedInput.replace(/\./g, '').replace(',', '.')) || 0
-        : undefined;
-      return { paymentMethod: s.method, items: Array.from(grouped.values()), montoRecibido: received };
+      const received = s.method === 'cash' ? parseMoneyInput(s.receivedInput) : undefined;
+      return { paymentMethod: s.method, items: Array.from(grouped.values()), montoRecibido: received, propina: getPartTip(i) };
     });
 
   const handleConfirm = () => {
@@ -836,9 +905,9 @@ function SplitBillModal({
                 <div className="flex-shrink-0 bg-neutral-100 px-4 pt-3 flex gap-1 border-b border-neutral-300 overflow-x-auto">
                   {Array.from({ length: numParts }, (_, i) => {
                     const isActive  = activePart === i;
-                    const partTotal = getPartTotal(i);
+                    const partTotal = getPartGrandTotal(i);
                     const s         = partStates[i];
-                    const received  = parseFloat(s.receivedInput.replace(/\./g, '').replace(',', '.')) || 0;
+                    const received  = parseMoneyInput(s.receivedInput);
                     const partReady = s.method !== 'cash' || received >= partTotal;
                     return (
                       <button key={i} onClick={() => setActivePart(i)}
@@ -890,9 +959,25 @@ function SplitBillModal({
                         </div>
                         <div className="flex justify-between items-center mt-3 px-1">
                           <span className="text-sm text-neutral-500">Subtotal parte {activePart + 1}</span>
-                          <span className="text-lg font-bold text-neutral-900">{fmt(getPartTotal(activePart))}</span>
+                          <span className="font-medium text-neutral-700">{fmt(getPartTotal(activePart))}</span>
+                        </div>
+                        {getPartTip(activePart) > 0 && (
+                          <div className="flex justify-between items-center px-1">
+                            <span className="text-sm text-neutral-500">Propina</span>
+                            <span className="font-medium text-neutral-700">{fmt(getPartTip(activePart))}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center px-1">
+                          <span className="text-sm font-semibold text-neutral-700">Total parte {activePart + 1}</span>
+                          <span className="text-lg font-bold text-neutral-900">{fmt(getPartGrandTotal(activePart))}</span>
                         </div>
                       </div>
+
+                      <TipSelector
+                        subtotal={getPartTotal(activePart)}
+                        tipInput={partStates[activePart].tipInput}
+                        onChange={v => updatePart(activePart, { tipInput: v })}
+                      />
 
                       {/* Method */}
                       <div>
@@ -925,8 +1010,8 @@ function SplitBillModal({
                               </div>
                             </div>
                             {(() => {
-                              const received = parseFloat(partStates[activePart].receivedInput.replace(/\./g, '').replace(',', '.')) || 0;
-                              const ready    = received >= getPartTotal(activePart);
+                              const received = parseMoneyInput(partStates[activePart].receivedInput);
+                              const ready    = received >= getPartGrandTotal(activePart);
                               return (
                                 <div className={clsx(
                                   'flex justify-between items-center px-4 py-3 rounded-xl transition-all',
@@ -934,7 +1019,7 @@ function SplitBillModal({
                                 )}>
                                   <span className={clsx('text-sm font-semibold', ready ? 'text-green-700' : 'text-neutral-400')}>Vuelto</span>
                                   <span className={clsx('text-xl font-bold', ready ? 'text-green-700' : 'text-neutral-300')}>
-                                    {ready ? fmt(received - getPartTotal(activePart)) : '—'}
+                                    {ready ? fmt(received - getPartGrandTotal(activePart)) : '—'}
                                   </span>
                                 </div>
                               );
@@ -947,7 +1032,7 @@ function SplitBillModal({
                             <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-4">
                               <CreditCard className="text-blue-600 flex-shrink-0" size={22} />
                               <div>
-                                <p className="text-sm font-bold text-blue-900">Cobra {fmt(getPartTotal(activePart))} en el datafono</p>
+                                <p className="text-sm font-bold text-blue-900">Cobra {fmt(getPartGrandTotal(activePart))} en el datafono</p>
                                 <p className="text-xs text-blue-600 mt-0.5">Confirma cuando el terminal apruebe</p>
                               </div>
                             </div>
@@ -975,7 +1060,7 @@ function SplitBillModal({
                             <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-xl px-4 py-4">
                               <Smartphone className="text-purple-600 flex-shrink-0" size={22} />
                               <div>
-                                <p className="text-sm font-bold text-purple-900">El cliente transfiere {fmt(getPartTotal(activePart))}</p>
+                                <p className="text-sm font-bold text-purple-900">El cliente transfiere {fmt(getPartGrandTotal(activePart))}</p>
                                 <p className="text-xs text-purple-600 mt-0.5">Confirma cuando veas el dinero en tu app</p>
                               </div>
                             </div>
@@ -997,8 +1082,10 @@ function SplitBillModal({
                 {/* Pay footer */}
                 <div className="px-6 py-4 border-t border-neutral-200 flex-shrink-0">
                   <div className="flex justify-between items-center mb-4 text-sm">
-                    <span className="text-neutral-500">{numParts} partes · Total</span>
-                    <span className="font-bold text-neutral-900">{fmt(order.total)}</span>
+                    <span className="text-neutral-500">{numParts} partes · Total{Array.from({ length: numParts }, (_, i) => getPartTip(i)).some(t => t > 0) ? ' (con propinas)' : ''}</span>
+                    <span className="font-bold text-neutral-900">
+                      {fmt(Array.from({ length: numParts }, (_, i) => getPartGrandTotal(i)).reduce((a, b) => a + b, 0))}
+                    </span>
                   </div>
                   {!cashPartsReady && (
                     <p className="text-xs text-amber-600 mb-3 text-center">

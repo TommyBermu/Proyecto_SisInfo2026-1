@@ -56,36 +56,36 @@ export default function KitchenView() {
   }, [isHistoryOpen]);
 
   return (
-    <div className="h-[calc(100vh-64px)] flex flex-col bg-neutral-900 text-white p-6 overflow-hidden">
+    <div className="h-[calc(100vh-64px)] flex flex-col bg-neutral-900 text-white p-4 sm:p-6 overflow-hidden">
       {/* Header */}
-      <div className="flex justify-between items-center mb-8 border-b border-neutral-700 pb-4">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-8 border-b border-neutral-700 pb-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
             <Clock className="text-orange-500" />
             KDS - Cocina
           </h1>
           <p className="text-sm text-neutral-400 mt-1">{activeOrders.length} órdenes activas</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={() => setIsHistoryOpen(!isHistoryOpen)}
             className={clsx(
-              "px-4 py-2 rounded-lg font-bold transition-colors flex items-center gap-2",
+              "flex-1 sm:flex-none justify-center px-4 py-2 rounded-lg font-bold transition-colors flex items-center gap-2",
               isHistoryOpen ? "bg-neutral-700 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
             )}
           >
             <Clipboard size={16} />
             Historial
           </button>
-          <button 
+          <button
             onClick={() => setIsStockPanelOpen(!isStockPanelOpen)}
             className={clsx(
-              "px-6 py-2 rounded-lg font-bold transition-colors flex items-center gap-2",
+              "flex-1 sm:flex-none justify-center px-4 sm:px-6 py-2 rounded-lg font-bold transition-colors flex items-center gap-2",
               isStockPanelOpen ? "bg-red-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
             )}
           >
             <EyeOff size={18} />
-            Control de Stock
+            <span className="hidden sm:inline">Control de </span>Stock
           </button>
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function KitchenView() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-0 left-0 right-0 h-1/3 bg-neutral-800 border-t border-neutral-700 shadow-2xl z-50 p-6 overflow-y-auto"
+            className="absolute bottom-0 left-0 right-0 h-1/2 sm:h-1/3 bg-neutral-800 border-t border-neutral-700 shadow-2xl z-50 p-4 sm:p-6 overflow-y-auto"
           >
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-bold text-white">Disponibilidad de Platillos</h3>
@@ -166,7 +166,7 @@ export default function KitchenView() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-0 left-0 right-0 h-2/5 bg-neutral-800 border-t border-neutral-700 shadow-2xl z-50 flex flex-col"
+            className="absolute bottom-0 left-0 right-0 h-1/2 sm:h-2/5 bg-neutral-800 border-t border-neutral-700 shadow-2xl z-50 flex flex-col"
           >
             {/* Header */}
             <div className="flex justify-between items-center px-6 py-4 border-b border-neutral-700 flex-shrink-0">
@@ -271,7 +271,7 @@ function OrderTicket({ order, onComplete, dishes, tables }: { order: Order; onCo
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
       className={clsx(
-        "w-[320px] h-full flex flex-col rounded-xl overflow-hidden border-2 shadow-lg bg-neutral-800 relative",
+        "w-[85vw] max-w-[320px] sm:w-[320px] h-full flex flex-col rounded-xl overflow-hidden border-2 shadow-lg bg-neutral-800 relative",
         isLate ? "border-red-500" : isPrepping ? "border-orange-500" : "border-neutral-700"
       )}
     >

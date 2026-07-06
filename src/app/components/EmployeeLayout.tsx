@@ -26,20 +26,20 @@ export default function EmployeeLayout() {
   return (
     <div className="min-h-screen bg-neutral-50">
       {/* Header con info del empleado */}
-      <header className="fixed top-0 left-0 right-0 bg-white border-b border-neutral-200 px-6 py-3 z-50 flex justify-between items-center shadow-sm">
-        <div className="flex items-center gap-3">
+      <header className="fixed top-0 left-0 right-0 bg-white border-b border-neutral-200 px-4 sm:px-6 py-3 z-50 flex justify-between items-center gap-2 shadow-sm">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="text-lg font-bold text-neutral-900">Gastro</div>
-          <div className="h-6 w-px bg-neutral-300" />
-          <div className="text-sm text-neutral-600">
-            <span className="font-medium text-neutral-900">{employeeName}</span>
+          <div className="h-6 w-px bg-neutral-300 flex-shrink-0" />
+          <div className="text-sm text-neutral-600 truncate">
+            <span className="font-medium text-neutral-900 truncate">{employeeName}</span>
           </div>
         </div>
         <button
           onClick={handleLogout}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors"
+          className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors flex-shrink-0"
         >
           <LogOut size={18} />
-          <span>Cerrar Sesión</span>
+          <span className="hidden sm:inline">Cerrar Sesión</span>
         </button>
       </header>
 

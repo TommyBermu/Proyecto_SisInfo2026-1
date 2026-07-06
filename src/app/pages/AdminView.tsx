@@ -310,8 +310,9 @@ export default function AdminView() {
   ] as const;
 
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-neutral-100 overflow-hidden">
-      <aside className="w-64 bg-neutral-900 text-white flex flex-col flex-shrink-0">
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-64px)] bg-neutral-100 overflow-hidden">
+      {/* Sidebar de escritorio */}
+      <aside className="hidden lg:flex w-64 bg-neutral-900 text-white flex-col flex-shrink-0">
         <div className="p-6 border-b border-neutral-800">
           <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
             <LayoutDashboard size={22} className="text-orange-500" /> BI & Analytics
@@ -336,6 +337,23 @@ export default function AdminView() {
         </nav>
       </aside>
 
+      {/* Navegación móvil: tabs horizontales */}
+      <nav className="lg:hidden flex-shrink-0 bg-neutral-900 text-white flex gap-1 overflow-x-auto px-3 py-2">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={clsx(
+              "flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-sm font-medium whitespace-nowrap",
+              activeTab === tab.id ? "bg-orange-600 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+            )}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
       <main className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
           <motion.div
@@ -343,7 +361,7 @@ export default function AdminView() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="p-8 h-full"
+            className="p-4 sm:p-6 lg:p-8 min-h-full"
           >
             {activeTab === 'sales' && <SalesModule statusFor={statusFor} totalRevenue={totalRevenue} totalTips={totalTips} avgTicket={avgTicket} hourlyRevenue={hourlyRevenue} paymentBreakdown={paymentBreakdown} menuEngineering={menuEngineering} />}
             {activeTab === 'audit' && <AuditModule statusFor={statusFor} transactions={transactions} />}
@@ -1014,8 +1032,26 @@ function PlatosModule() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const catById = useMemo(() => new Map(categorias.map(c => [c.id, c.nombre])), [categorias]);
+
+  const handleImageUpload = async (file: File) => {
+    setError('');
+    if (!file.type.startsWith('image/')) { setError('Selecciona un archivo de imagen.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('La imagen no debe superar 5MB.'); return; }
+
+    setUploading(true);
+    const ext = file.name.split('.').pop() || 'jpg';
+    const path = `${crypto.randomUUID()}.${ext}`;
+    const { error: uploadError } = await supabase.storage.from('dish-images').upload(path, file, { upsert: false });
+    setUploading(false);
+
+    if (uploadError) { setError('No se pudo subir la imagen: ' + uploadError.message); return; }
+
+    const { data } = supabase.storage.from('dish-images').getPublicUrl(path);
+    setForm(prev => ({ ...prev, foto_url: data.publicUrl }));
+  };
 
   const load = async () => {
     setLoading(true);
@@ -1193,10 +1229,24 @@ function PlatosModule() {
                   ) : (
                     <div className="w-20 h-20 rounded-xl bg-neutral-100 flex items-center justify-center text-neutral-400 flex-shrink-0"><ImageIcon size={22} /></div>
                   )}
-                  <div className="flex-1">
-                    <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">URL de la imagen</label>
-                    <input value={form.foto_url} onChange={e => setForm({ ...form, foto_url: e.target.value })} placeholder="https://..."
-                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  <div className="flex-1 space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Imagen</label>
+                    <label className={clsx(
+                      'flex items-center justify-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed text-sm font-medium cursor-pointer transition-colors',
+                      uploading ? 'border-neutral-200 text-neutral-400 cursor-wait' : 'border-neutral-300 text-neutral-600 hover:border-orange-400 hover:text-orange-600'
+                    )}>
+                      {uploading ? <Loader2 size={15} className="animate-spin" /> : <ImageIcon size={15} />}
+                      {uploading ? 'Subiendo...' : 'Subir foto desde el equipo'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploading}
+                        className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) void handleImageUpload(f); e.target.value = ''; }}
+                      />
+                    </label>
+                    <input value={form.foto_url} onChange={e => setForm({ ...form, foto_url: e.target.value })} placeholder="o pega una URL de imagen..."
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs text-neutral-600 focus:outline-none focus:ring-2 focus:ring-orange-500" />
                   </div>
                 </div>
 
