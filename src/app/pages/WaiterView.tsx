@@ -277,46 +277,41 @@ function NewOrderView() {
     <div className="h-full flex flex-col p-4 sm:p-6 overflow-y-auto lg:overflow-hidden">
       {/* Header */}
       <div className="mb-6 bg-white rounded-lg p-4 shadow-sm border border-neutral-200">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-3">
-          <div className="flex items-center gap-3">
-            <ShoppingCart className="text-neutral-700" size={24} />
-            <div>
-              <h2 className="text-xl font-bold text-neutral-900">Nuevo Pedido</h2>
-              <p className="text-sm text-neutral-500 capitalize">{currentDate}</p>
-            </div>
+        <div className="flex items-center gap-3 mb-4">
+          <ShoppingCart className="text-neutral-700" size={24} />
+          <div>
+            <h2 className="text-xl font-bold text-neutral-900">Nuevo Pedido</h2>
+            <p className="text-sm text-neutral-500 capitalize">{currentDate}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col gap-2 lg:items-end w-full lg:w-auto">
-              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Mesa activa</span>
-              <div className="flex flex-wrap gap-2 lg:max-w-xl lg:justify-end">
-                {tables.map(table => {
-                  const isAvailable = table.status === 'disponible';
-                  const isSelected = selectedTable === table.id;
-                  return (
-                    <button
-                      key={table.id}
-                      type="button"
-                      onClick={() => isAvailable && setSelectedTable(table.id)}
-                      disabled={!isAvailable}
-                      className={clsx(
-                        "min-w-[92px] px-3 py-2 rounded-lg border text-left transition-all",
-                        isSelected
-                          ? "bg-neutral-900 text-white border-neutral-900 shadow-md"
-                          : isAvailable
-                            ? "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"
-                            : "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
-                      )}
-                    >
-                      <div className="text-sm font-bold">Mesa {table.number}</div>
-                      <div className="text-[11px] uppercase tracking-wide">
-                        {isAvailable ? 'Disponible' : table.status.replace('_', ' ')}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+        </div>
+
+        <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500 block mb-2">Mesa activa</span>
+        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-9 xl:grid-cols-10 gap-2">
+          {tables.map(table => {
+            const isAvailable = table.status === 'disponible';
+            const isSelected = selectedTable === table.id;
+            return (
+              <button
+                key={table.id}
+                type="button"
+                onClick={() => isAvailable && setSelectedTable(table.id)}
+                disabled={!isAvailable}
+                className={clsx(
+                  "px-3 py-2 rounded-lg border text-left transition-all",
+                  isSelected
+                    ? "bg-neutral-900 text-white border-neutral-900 shadow-md"
+                    : isAvailable
+                      ? "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"
+                      : "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
+                )}
+              >
+                <div className="text-sm font-bold">Mesa {table.number}</div>
+                <div className="text-[11px] uppercase tracking-wide">
+                  {isAvailable ? 'Disponible' : table.status.replace('_', ' ')}
+                </div>
+              </button>
+            );
+          })}
         </div>
         {selectedTable && occupiedTableIds.has(selectedTable) && (
           <div className="mt-3 px-4 py-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm">

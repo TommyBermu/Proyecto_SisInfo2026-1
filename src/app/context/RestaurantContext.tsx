@@ -302,7 +302,11 @@ export const RestaurantProvider = ({ children }: { children: ReactNode }) => {
       if (error) throw error;
 
       if (data) {
-        const baseTables = data.map((mesa: any, index: number) => mapMesaToTable(mesa, index));
+        // 'numero' es varchar en la BD; ordenar numéricamente (no como texto,
+        // donde "10" quedaría antes que "2").
+        const baseTables = data
+          .map((mesa: any, index: number) => mapMesaToTable(mesa, index))
+          .sort((a, b) => a.number - b.number);
         setTables(enrichTablesWithOrders(baseTables, orders));
       } else {
         setTables([]);
